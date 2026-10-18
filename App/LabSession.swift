@@ -15,6 +15,15 @@ import SwiftUI
     @Published private(set) var elapsed = 0.0
     @Published private(set) var detail = ""
     @Published private(set) var keySaved = false
+    // Prefer account subscription; paid API is optional.
+    @Published var authSource: String = UserDefaults.standard.string(forKey: "lab.authSource") ?? "chatgpt" {
+        didSet { UserDefaults.standard.set(authSource, forKey: "lab.authSource") }
+    }
+    @Published private(set) var chatGPTAccount = ""
+    @Published private(set) var chatGPTModels: [ModelChoice] = []
+    @Published var chatGPTModel: String = UserDefaults.standard.string(forKey: "lab.chatGPTModel") ?? "" {
+        didSet { UserDefaults.standard.set(chatGPTModel, forKey: "lab.chatGPTModel") }
+    }
     @Published var modelID: String = UserDefaults.standard.string(forKey: "lab.model") ?? "gpt-4.1-mini" {
         didSet { UserDefaults.standard.set(modelID, forKey: "lab.model") }
     }
@@ -50,6 +59,28 @@ import SwiftUI
         super.init()
         speaker.delegate = self
         refreshKey()
+        chatGPTAccount = (try? SessionStore.load())?.email ?? ""
+    }
+
+    func loadChatGPTModels() async throws {
+        guard let saved = try SessionStore.load() else {
+            throw Failure.message("Сначала войди через ChatGPT.")
+        }
+        let current = try await OpenAI.refresh(saved)
+        let available = try await OpenAI.models(current)
+        chatGPTAccount = current.email
+        chatGPTModels = available
+        if !available.contains(where: { $0.id == chatGPTModel }) {
+            chatGPTModel = available.first?.id ?? ""
+        }
+        if chatGPTModel.isEmpty { throw Failure.message("Для этого аккаунта нет доступных текстовых моделей.") }
+    }
+
+    func disconnectChatGPT() throws {
+        try SessionStore.clear()
+        chatGPTAccount = ""
+        chatGPTModels = []
+        chatGPTModel = ""
     }
 
     func refreshKey() { keySaved = (try? LabKeychain.load()) != nil }
@@ -149,8 +180,17 @@ import SwiftUI
             if phase == .idle { message = "Нет текста для перевода" }
             return
         }
-        guard keySaved else {
-            message = "Текст распознан. Добавь API-ключ OpenAI в настройках для перевода."
+        if authSource == "chatgpt" {
+            guard (try? SessionStore.load()) != nil else {
+                message = "Текст распознан. Войди через ChatGPT в настройках."
+                return
+            }
+            guard !chatGPTModel.isEmpty else {
+                message = "Выбери модель ChatGPT в настройках."
+                return
+            }
+        } else if !keySaved {
+            message = "Текст распознан. Добавь API-ключ OpenAI в настройках."
             return
         }
         operation?.cancel()
@@ -158,19 +198,30 @@ import SwiftUI
         let token = generation
         let input = source
         let from = language
-        let model = modelID
+        let selectedSource = authSource
+        let model = selectedSource == "chatgpt" ? chatGPTModel : modelID
         translationTarget = from == "ru" ? "de" : "ru"
         translation = ""
         phase = .translating
         message = "OpenAI · перевожу готовую фразу"
-        detail = "\(from == "ru" ? "Русский → Deutsch" : "Deutsch → Русский") · \(model)"
+        detail = "\(from == "ru" ? "Русский → Deutsch" : "Deutsch → Русский") · \(model) · \(selectedSource == "chatgpt" ? "ChatGPT" : "API")"
         operation = Task { [weak self] in
             guard let self else { return }
             do {
-                guard let key = try LabKeychain.load() else {
-                    throw LabTranslator.TranslationError.http(401, "Ключ отсутствует")
+                let bearer: String
+                if selectedSource == "chatgpt" {
+                    guard let saved = try SessionStore.load() else {
+                        throw Failure.message("Войди через ChatGPT в настройках.")
+                    }
+                    let session = try await OpenAI.refresh(saved)
+                    bearer = session.accessToken
+                } else {
+                    guard let key = try LabKeychain.load() else {
+                        throw Failure.message("Добавь API-ключ OpenAI в настройках.")
+                    }
+                    bearer = key
                 }
-                let value = try await LabTranslator.translate(input, source: from, model: model, apiKey: key)
+                let value = try await LabTranslator.translate(input, source: from, model: model, bearerToken: bearer)
                 guard self.generation == token && !Task.isCancelled else { return }
                 self.translation = value
                 self.phase = .idle
