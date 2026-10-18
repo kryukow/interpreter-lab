@@ -14,7 +14,8 @@
 
 Подробно: [SETUP.md](SETUP.md).
 
-- XcodeGen: `brew install xcodegen && xcodegen generate`
+- XcodeGen: `brew install xcodegen && swift scripts/make-icon.swift && xcodegen generate`
+- Иконка LAB генерируется из собственного чёрно-белого изображения `Design/LabIcon512.png`
 - Схема: `InterpreterLab`; минимальная iOS: 18.4
 - CI: [GitHub Actions](https://github.com/kryukow/interpreter-lab/actions/workflows/build-ios.yml), артефакт `Interpreter-Lab-0.1.0-Unsigned-iPhone`
 - Bundle ID: `org.interpreter.lab` — независим от основной программы
