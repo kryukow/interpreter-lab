@@ -32,6 +32,7 @@ import Speech
     func start(locale: String,
                onText: @escaping (String) -> Void,
                onLevel: @escaping (Double) -> Void,
+               onBands: @escaping (LabAudioBands) -> Void,
                onFinish: @escaping (Result<String, Error>) -> Void) async throws {
         cancel()
         let token = generation
@@ -86,9 +87,14 @@ import Speech
                 total += Double(channel[i]) * Double(channel[i])
             }
             let level = min(1, sqrt(total / Double(buffer.frameLength)) * 9)
+            let bands = LabAudioBands.measure(
+                samples: channel, count: Int(buffer.frameLength),
+                sampleRate: format.sampleRate
+            )
             Task { @MainActor [weak self] in
                 guard let self, self.generation == token else { return }
                 onLevel(level)
+                onBands(bands)
             }
         }
         installedTap = true
