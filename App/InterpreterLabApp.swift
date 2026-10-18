@@ -361,9 +361,9 @@ struct LabSettings: View {
                 }
                 Section("Озвучивание") {
                     Toggle("Автоматически озвучивать перевод", isOn: $model.autoSpeak)
-                    Picker("Немецкий голос", selection: $model.germanVoiceID) {
+                    Picker("Голос \(model.partner.name)", selection: $model.selectedPartnerVoiceID) {
                         Text("Системный по умолчанию").tag("")
-                        ForEach(model.voices(for: "de"), id: \.identifier) { voice in
+                        ForEach(model.voices(for: model.partner.rawValue), id: \.identifier) { voice in
                             Text("\(voice.name) · \(voice.language)").tag(voice.identifier)
                         }
                     }
