@@ -5,8 +5,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.3.0'
-    CURRENT_PROJECT_VERSION: '4'
+    MARKETING_VERSION: '0.3.1'
+    CURRENT_PROJECT_VERSION: '5'
     TARGETED_DEVICE_FAMILY: '1'
 targets:
   InterpreterLab:
@@ -20,7 +20,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Interpreter Lab
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Микрофон нужен для записи речи перед переводом.
-        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Распознавание русской и немецкой речи перед переводом.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Распознавание русской, немецкой, английской, испанской, румынской и польской речи перед переводом.
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIBackgroundModes: []
 schemes:
