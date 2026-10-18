@@ -14,10 +14,10 @@
 
 Подробно: [SETUP.md](SETUP.md).
 
-- XcodeGen: `brew install xcodegen && swift scripts/make-icon.swift && xcodegen generate`
-- Иконка LAB генерируется из собственного чёрно-белого изображения `Design/LabIcon512.png`
+- XcodeGen: `brew install xcodegen && xcodegen generate`
+- Иконка и PressButton.swift перенесены без изменений из Interpreter Live.
 - Схема: `InterpreterLab`; минимальная iOS: 18.4
-- CI: [GitHub Actions](https://github.com/kryukow/interpreter-lab/actions/workflows/build-ios.yml), артефакт `Interpreter-Lab-0.2.1-Unsigned-iPhone`
+- CI: [GitHub Actions](https://github.com/kryukow/interpreter-lab/actions/workflows/build-ios.yml), артефакт `Interpreter-Lab-0.3.0-Unsigned-iPhone`
 - Bundle ID: `org.interpreter.lab` — независим от основной программы
 - Главный режим: **войти через ChatGPT**, получить список доступных текстовых моделей и выбрать модель. Вход и обновление токена перенесены из основного Interpreter; сессия Lab хранится отдельно.
 - Для дополнительного платного режима API-ключ добавляется в настройках и хранится в отдельной записи Keychain
@@ -27,6 +27,14 @@
 
 После проверки первой сборки на iPhone: обработка пауз и обрывов Apple ASR, сравнение синтезаторов (Apple / OpenAI TTS / локальная модель), измерение задержек и стоимости. Функции, не реализованные в текущем прототипе, не считаются работающими.
 
-### Исправление 0.2.1
+### Исправление 0.3.0
 
 Устранено нарушение обязательного формата Sign in with ChatGPT: `POST /v1/responses` теперь выполняется с `store:false`, `stream:true`, массивом `input` и чтением SSE до `response.completed`. Серверные ошибки выводятся с текстом, кодом/параметром и ID запроса, если доступен, без записи токенов в логи. Добавлены тесты потокового протокола.
+
+### Интерфейс 0.3.0
+
+- Перенесены оригинальные PressButton.swift и AppIcon.png из Live без изменений.
+- Индикатор речи из Live/LiveApp.swift повторно использован без изменения геометрии и источника уровней микрофона.
+- Русский и Deutsch — полный список языков, фактически реализованный в исходной версии Live; системные голоса для каждого языка выбираются автоматически из доступных на iPhone.
+- Убраны блоки «Экспериментальный режим» и «О приложении» в настройках.
+- После входа скрыта кнопка «Войти через ChatGPT». Заголовок настроек компактный, чтобы не перекрывать контент.
