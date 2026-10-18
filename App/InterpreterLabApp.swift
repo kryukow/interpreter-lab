@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import SafariServices
 
 @main
 struct InterpreterLabApp: App {
@@ -57,8 +58,8 @@ struct LabView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text("ОЗВУЧИВАНИЕ").font(.caption2).foregroundStyle(.secondary)
-                    Text("Apple TTS · локально").font(.subheadline.bold())
+                    Text("ПЕРЕВОД").font(.caption2).foregroundStyle(.secondary)
+                    Text(model.authSource == "chatgpt" ? "ChatGPT Plus" : "OpenAI API").font(.subheadline.bold())
                 }
             }.padding(16).background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 22))
 
@@ -149,6 +150,8 @@ struct LabSettings: View {
     @State private var key = ""
     @State private var notice = ""
     @State private var deleteKey = false
+    @StateObject private var login = Login()
+    @State private var authenticating = false
 
     var body: some View {
         NavigationStack {
@@ -158,31 +161,80 @@ struct LabSettings: View {
                     Text("Нет Realtime/WebRTC и потокового звука OpenAI. Русский и немецкий распознаёт Apple; для некоторых языков Apple может использовать сервер.")
                         .font(.footnote)
                 }
-                Section("API-ключ OpenAI") {
-                    Text(model.keySaved ? "Ключ сохранён в Keychain этого приложения" : "Добавь отдельный API-ключ OpenAI")
-                        .font(.footnote)
-                    SecureField("Вставь API-ключ", text: $key)
-                        .textContentType(.password).textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    Button("Вставить из буфера") { key = UIPasteboard.general.string ?? "" }
-                    Button("Сохранить ключ") {
-                        do {
-                            try model.saveKey(key)
-                            key = ""
-                            notice = "API-ключ сохранён"
-                        } catch { notice = error.localizedDescription }
-                    }.disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    if model.keySaved {
-                        Button("Удалить ключ", role: .destructive) { deleteKey = true }
+                Section("Способ перевода") {
+                    Picker("Использовать", selection: $model.authSource) {
+                        Text("Подписка ChatGPT · основной").tag("chatgpt")
+                        Text("Платный API · дополнительно").tag("api")
                     }
-                    Link("Создать ключ OpenAI", destination: URL(string: "https://platform.openai.com/api-keys")!)
-                    Text("Используется отдельный платный API, не подписка ChatGPT Plus. Ключ не включён в исходники.")
+                    Text(model.authSource == "chatgpt"
+                         ? "Перевод текста через Sign in with ChatGPT и лимиты подписки. Отдельный API-ключ не нужен."
+                         : "Перевод текста через платный OpenAI API. Вход в ChatGPT для этого режима не требуется.")
                         .font(.footnote)
                 }
-                Section("Модель перевода") {
-                    Picker("Модель", selection: $model.modelID) {
-                        Text("GPT-4.1 mini · экономнее").tag("gpt-4.1-mini")
-                        Text("GPT-4.1 · качественнее").tag("gpt-4.1")
+                if model.authSource == "chatgpt" {
+                    Section("ChatGPT") {
+                        Text(model.chatGPTAccount.isEmpty ? "Вход не выполнен" : "Подключён аккаунт: \(model.chatGPTAccount)")
+                            .font(.footnote)
+                        Button("Войти через ChatGPT") {
+                            authenticating = true
+                            notice = ""
+                            Task {
+                                defer { authenticating = false }
+                                do {
+                                    try await login.signIn()
+                                    try await model.loadChatGPTModels()
+                                    notice = "ChatGPT подключён. Теперь можно переводить."
+                                } catch { notice = error.localizedDescription }
+                            }
+                        }.disabled(authenticating)
+                        if !model.chatGPTAccount.isEmpty {
+                            Button("Обновить модели") {
+                                authenticating = true
+                                Task {
+                                    defer { authenticating = false }
+                                    do { try await model.loadChatGPTModels(); notice = "Список моделей обновлён." }
+                                    catch { notice = error.localizedDescription }
+                                }
+                            }.disabled(authenticating)
+                            Picker("Модель перевода", selection: $model.chatGPTModel) {
+                                Text("Выбери модель").tag("")
+                                ForEach(model.chatGPTModels) { item in
+                                    Text(item.name).tag(item.id)
+                                }
+                            }.disabled(authenticating)
+                            Button("Выйти из ChatGPT", role: .destructive) {
+                                do { try model.disconnectChatGPT(); notice = "Вход ChatGPT удалён только в Lab." }
+                                catch { notice = error.localizedDescription }
+                            }.disabled(authenticating)
+                        }
+                        Text("Авторизация использует механизм из основного Interpreter. Сессия Lab хранится отдельно. В OpenAI отправляется только текст, распознанный Apple.")
+                            .font(.footnote)
+                        if !login.message.isEmpty { Text(login.message).font(.footnote) }
+                    }
+                }
+                if model.authSource == "api" {
+                    Section("Платный OpenAI API") {
+                        Text(model.keySaved ? "Ключ сохранён в Keychain этого приложения" : "Добавь API-ключ для платного режима")
+                            .font(.footnote)
+                        SecureField("Вставь API-ключ", text: $key)
+                            .textContentType(.password).textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Button("Вставить из буфера") { key = UIPasteboard.general.string ?? "" }
+                        Button("Сохранить ключ") {
+                            do {
+                                try model.saveKey(key)
+                                key = ""
+                                notice = "API-ключ сохранён"
+                            } catch { notice = error.localizedDescription }
+                        }.disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if model.keySaved {
+                            Button("Удалить ключ", role: .destructive) { deleteKey = true }
+                        }
+                        Link("Создать ключ OpenAI", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                        Picker("Модель API", selection: $model.modelID) {
+                            Text("GPT-4.1 mini").tag("gpt-4.1-mini")
+                            Text("GPT-4.1").tag("gpt-4.1")
+                        }
                     }
                 }
                 Section("Озвучивание") {
@@ -216,7 +268,7 @@ struct LabSettings: View {
             .navigationTitle("Настройки")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Готово") { key = ""; dismiss() }
+                    Button("Готово") { key = ""; dismiss() }.disabled(authenticating)
                 }
             }
             .confirmationDialog("Удалить API-ключ из этого приложения?", isPresented: $deleteKey) {
@@ -225,8 +277,30 @@ struct LabSettings: View {
                     catch { notice = error.localizedDescription }
                 }
             }
+            .sheet(isPresented: Binding(get: { login.browserURL != nil }, set: { _ in })) {
+                if let url = login.browserURL {
+                    LabLoginBrowser(url: url).interactiveDismissDisabled()
+                }
+            }
+            .interactiveDismissDisabled(authenticating)
+            .task {
+                guard model.authSource == "chatgpt", !model.chatGPTAccount.isEmpty,
+                      model.chatGPTModels.isEmpty, !authenticating else { return }
+                authenticating = true
+                defer { authenticating = false }
+                do { try await model.loadChatGPTModels() }
+                catch { notice = error.localizedDescription }
+            }
             .onDisappear { key = "" }
         }
         .tint(.white)
     }
+}
+
+struct LabLoginBrowser: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        SFSafariViewController(url: url)
+    }
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
