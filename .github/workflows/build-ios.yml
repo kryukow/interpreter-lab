@@ -76,15 +76,20 @@ jobs:
           assert "bands: model.visualBands" in ui
           assert "MicrophoneWaveform(levels: model.levels, recording: model.phase == .recording || model.phase == .playing)" in ui
           resonance = Path("App/LabGraphiteResonance.swift").read_text()
-          assert "TimelineView(.animation" in resonance
-          assert "bass * 0.075" in resonance
-          assert "mids * 0.050" in resonance
-          assert "colors: [" in resonance
+          assert "UIViewRepresentable" in resonance
+          assert "CAGradientLayer" in resonance and "CABasicAnimation" in resonance
+          assert "ribbonWidth: CGFloat = 188" in resonance
+          assert "ribbonHeight: CGFloat = 108" in resonance
+          assert "TimelineView(" not in resonance and "Canvas(" not in resonance
+          assert ".blur(" not in resonance
+          assert "GraphiteResonanceSurface" in resonance
           audio = Path("App/LabSpeechExporter.swift").read_text()
           assert "synth.write(utterance)" in audio
           assert "LabPlaybackSpectrum" in audio
           session = Path("App/LabSession.swift").read_text()
           assert "startPlaybackMeter(token: token" in session
+          assert "lastMicrophoneVisualUpdate >= 0.05" in session
+          assert "milliseconds(50)" in session
           assert "playRegularAppleVoice" in session
           assert "private var languageDrag: some Gesture" in ui
           assert ".animation(.spring(response: 0.33, dampingFraction: 0.83), value: orbitActive)" in ui
@@ -117,18 +122,18 @@ jobs:
           app = Path(os.environ["RUNNER_TEMP"]) / "LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app"
           info = plistlib.loads((app / "Info.plist").read_bytes())
           assert info["CFBundleIdentifier"] == "org.interpreter.lab"
-          assert info["CFBundleShortVersionString"] == "0.4.0"
+          assert info["CFBundleShortVersionString"] == "0.4.1"
           assert info["NSMicrophoneUsageDescription"]
           assert info["NSSpeechRecognitionUsageDescription"]
           print("Verified Interpreter Lab iOS .app bundle")
           PY
           mkdir -p "$RUNNER_TEMP/lab-package/Payload"
           cp -R "$RUNNER_TEMP/LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app" "$RUNNER_TEMP/lab-package/Payload/"
-          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.4.0-Unsigned.ipa" Payload)
-          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.4.0-Unsigned.ipa"
+          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.4.1-Unsigned.ipa" Payload)
+          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.4.1-Unsigned.ipa"
       - uses: actions/upload-artifact@v4
         with:
-          name: Interpreter-Lab-0.4.0-Unsigned-iPhone
-          path: ${{ runner.temp }}/Interpreter-Lab-0.4.0-Unsigned.ipa
+          name: Interpreter-Lab-0.4.1-Unsigned-iPhone
+          path: ${{ runner.temp }}/Interpreter-Lab-0.4.1-Unsigned.ipa
           if-no-files-found: error
           retention-days: 7

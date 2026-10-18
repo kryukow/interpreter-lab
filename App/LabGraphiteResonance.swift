@@ -1,162 +1,224 @@
 import SwiftUI
+import UIKit
+import QuartzCore
 
 enum LabResonancePhase: Equatable {
     case idle, input, processing, output
 }
 
-/// Graphite · Expressive — approved Infinity Resonance design.
-/// The symbol and softly blurred monochrome clouds react to three REAL audio
-/// frequency bands. Idle/processing have gentle ambient motion only.
-struct LabGraphiteResonance: View {
+/// Approved Graphite / Expressive theme.
+///
+/// No TimelineView, Canvas, per-frame SwiftUI rendering, .blur modifiers, or
+/// software filters. The monochrome blobs drift via Core Animation on their
+/// own composited layers. Only small layer properties change when mic / actual
+/// Apple TTS samples arrive (capped to ~20 Hz in LabSession).
+struct LabGraphiteResonance: UIViewRepresentable {
     let phase: LabResonancePhase
     let bands: LabAudioBands
     let orbitActive: Bool
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-            let time = timeline.date.timeIntervalSinceReferenceDate
-            let active = phase == .input || phase == .output
-            let bass = active ? min(1, bands.low * 1.7) : 0.0
-            let mids = active ? min(1, bands.mid * 1.7) : 0.0
-            let highs = active ? min(1, bands.high * 1.7) : 0.0
-            let energy = max(bass, max(mids, highs))
-            let drift = reduceMotion ? 0.0 : time
-            let breath = reduceMotion ? 1.0 : (1.0 + 0.012 * sin(drift * 0.64))
-            let scaleX = breath + bass * 0.075
-            let scaleY = breath + mids * 0.050
-            let glow = 0.20 + energy * 0.62 + (phase == .processing ? 0.12 : 0)
-            let motion = orbitActive ? 0.08 : 1.0
-
-            GeometryReader { geometry in
-                let size = geometry.size
-                let diameter = max(size.width * 0.33, 128.0)
-                let centerY = size.height * 0.49
-
-                ZStack {
-                    // Slow, feathered monochrome nebula — no colored palette.
-                    // They grow on bass attacks instead of flashing or jittering.
-                    Ellipse()
-                        .fill(RadialGradient(
-                            colors: [Color(red: 0.66, green: 0.70, blue: 0.77).opacity(0.30 + bass * 0.44), .clear],
-                            center: .center, startRadius: 6, endRadius: diameter * 0.55))
-                        .frame(width: diameter * (1.2 + bass * 0.35), height: diameter * 0.87)
-                        .blur(radius: 24)
-                        .offset(x: -size.width * 0.20 + CGFloat(sin(drift * 0.31) * 17),
-                                y: CGFloat(sin(drift * 0.38) * 7) - 8)
-                    Ellipse()
-                        .fill(RadialGradient(
-                            colors: [Color(red: 0.86, green: 0.88, blue: 0.94).opacity(0.23 + mids * 0.49), .clear],
-                            center: .center, startRadius: 5, endRadius: diameter * 0.56))
-                        .frame(width: diameter * (1.35 + mids * 0.32), height: diameter * 0.90)
-                        .blur(radius: 27)
-                        .offset(x: size.width * 0.19 + CGFloat(cos(drift * 0.27) * 15),
-                                y: CGFloat(sin(drift * 0.29) * 11) - 11)
-                    Ellipse()
-                        .fill(RadialGradient(
-                            colors: [Color(red: 0.48, green: 0.53, blue: 0.61).opacity(0.20 + highs * 0.49), .clear],
-                            center: .center, startRadius: 4, endRadius: diameter * 0.55))
-                        .frame(width: diameter * 1.26, height: diameter * 0.72)
-                        .blur(radius: 31)
-                        .offset(x: CGFloat(sin(drift * 0.23) * 14),
-                                y: size.height * 0.25 - CGFloat(highs * 15))
-                    // Diffuse center pulse follows real speech envelope.
-                    Ellipse()
-                        .fill(Color(white: 0.78).opacity(0.10 + energy * 0.19))
-                        .frame(width: diameter * (0.95 + energy * 0.50),
-                               height: diameter * (0.46 + energy * 0.26))
-                        .blur(radius: 31)
-                        .offset(y: -4)
-
-                    // The original Live orbit owns the language controls;
-                    // this is visual-only and cannot intercept their gestures.
-                    ZStack {
-                        InfinityRibbon()
-                            .stroke(Color(red: 0.67, green: 0.70, blue: 0.79).opacity(glow),
-                                    style: StrokeStyle(lineWidth: 15 + bass * 20, lineCap: .round))
-                            .blur(radius: 13 + energy * 8)
-
-                        InfinityRibbon()
-                            .stroke(Color(white: 0.22).opacity(0.90),
-                                    style: StrokeStyle(lineWidth: 12, lineCap: .round))
-
-                        InfinityRibbon()
-                            .stroke(
-                                LinearGradient(
-                                    colors: [
-                                        Color(red: 0.66, green: 0.70, blue: 0.78),
-                                        .white,
-                                        Color(red: 0.78, green: 0.81, blue: 0.88),
-                                        .white,
-                                        Color(red: 0.70, green: 0.73, blue: 0.81)
-                                    ],
-                                    startPoint: .topLeading, endPoint: .bottomTrailing),
-                                style: StrokeStyle(lineWidth: 8.5 + mids * 2.6, lineCap: .round))
-
-                        InfinityRibbon()
-                            .stroke(Color.white.opacity(0.23 + highs * 0.50),
-                                    style: StrokeStyle(lineWidth: 1.7 + highs * 1.4,
-                                                       lineCap: .round,
-                                                       dash: [18 + highs * 23, 280],
-                                                       dashPhase: drift * (phase == .processing ? -42 : -76)))
-                    }
-                    .frame(width: size.width * 0.72, height: size.height * 0.73)
-                    .scaleEffect(x: scaleX, y: scaleY)
-                    .offset(y: -3)
-                    .shadow(color: Color(white: 0.85).opacity(0.06 + energy * 0.22),
-                            radius: 17 + energy * 12)
-                }
-                .frame(width: size.width, height: size.height)
-                .position(x: size.width / 2, y: centerY)
-                .opacity(motion)
-                .scaleEffect(orbitActive ? 1.22 : 1)
-                .animation(.spring(response: 0.33, dampingFraction: 0.83), value: orbitActive)
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityLabel(accessibility)
+    func makeUIView(context: Context) -> GraphiteResonanceSurface {
+        let view = GraphiteResonanceSurface()
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        view.update(phase: phase, bands: bands, orbitActive: orbitActive)
+        return view
     }
 
-    private var accessibility: String {
-        switch phase {
-        case .idle: return "Символ бесконечности, ожидание"
-        case .input: return "Реакция на входящую речь"
-        case .processing: return "Формирование перевода"
-        case .output: return "Реакция на звучащий перевод"
-        }
+    func updateUIView(_ uiView: GraphiteResonanceSurface, context: Context) {
+        uiView.update(phase: phase, bands: bands, orbitActive: orbitActive)
     }
 }
 
-/// One elegant hand-shaped ribbon, not an SF Symbol distorted by amplitude.
-/// Voice moves the whole ribbon by < 8%; the main contour remains legible.
-private struct InfinityRibbon: Shape {
-    func path(in rect: CGRect) -> Path {
-        let x = rect.minX
-        let y = rect.minY
-        let w = rect.width
-        let h = rect.height
-        func point(_ px: CGFloat, _ py: CGFloat) -> CGPoint {
-            CGPoint(x: x + px * w, y: y + py * h)
+/// CA-native renderer: 3 feathered radial-gradient blobs and one compact,
+/// balanced infinity ribbon. Purely decorative; never touches microphone,
+/// network, translation, or audio playback.
+final class GraphiteResonanceSurface: UIView {
+    private let cloudLeft = CAGradientLayer()
+    private let cloudRight = CAGradientLayer()
+    private let cloudBottom = CAGradientLayer()
+    private let ribbon = CALayer()
+    private let aura = CAShapeLayer()
+    private let underside = CAShapeLayer()
+    private let mainStroke = CAShapeLayer()
+    private let glint = CAShapeLayer()
+    private var previousSize = CGSize.zero
+
+    // 188 x 108: around a third narrower than the initial oversized version.
+    // Actual painted contour ratio is ~2.2:1, no elongated stretched loops.
+    private let ribbonWidth: CGFloat = 188
+    private let ribbonHeight: CGFloat = 108
+    private var currentPhase: LabResonancePhase = .idle
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        backgroundColor = .clear
+        clipsToBounds = false
+        layer.masksToBounds = false
+
+        configureCloud(cloudLeft, white: 0.65, alpha: 0.40)
+        configureCloud(cloudRight, white: 0.87, alpha: 0.32)
+        configureCloud(cloudBottom, white: 0.54, alpha: 0.29)
+        layer.addSublayer(cloudLeft)
+        layer.addSublayer(cloudRight)
+        layer.addSublayer(cloudBottom)
+
+        ribbon.masksToBounds = false
+        layer.addSublayer(ribbon)
+        setupStroke(aura, color: UIColor(white: 0.83, alpha: 1), width: 16)
+        aura.opacity = 0.18
+        aura.shadowColor = UIColor(white: 0.88, alpha: 1).cgColor
+        aura.shadowRadius = 9
+        aura.shadowOpacity = 0.26
+        aura.shadowOffset = .zero
+        setupStroke(underside, color: UIColor(white: 0.23, alpha: 1), width: 10)
+        setupStroke(mainStroke, color: UIColor(white: 0.95, alpha: 1), width: 6.5)
+        setupStroke(glint, color: .white, width: 2.1)
+        glint.opacity = 0.25
+        glint.lineDashPattern = [22, 360]
+        [aura, underside, mainStroke, glint].forEach(ribbon.addSublayer)
+        startAmbientMovement()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("GraphiteResonanceSurface is code-only")
+    }
+
+    private func configureCloud(_ cloud: CAGradientLayer, white: CGFloat, alpha: CGFloat) {
+        cloud.type = .radial
+        cloud.startPoint = CGPoint(x: 0.5, y: 0.5)
+        cloud.endPoint = CGPoint(x: 1.0, y: 1.0)
+        cloud.colors = [
+            UIColor(white: white, alpha: alpha).cgColor,
+            UIColor(white: white, alpha: alpha * 0.31).cgColor,
+            UIColor(white: white, alpha: 0).cgColor
+        ]
+        cloud.locations = [0, 0.40, 1]
+        cloud.opacity = 0.50
+        cloud.drawsAsynchronously = true
+    }
+
+    private func setupStroke(_ shape: CAShapeLayer, color: UIColor, width: CGFloat) {
+        shape.fillColor = nil
+        shape.strokeColor = color.cgColor
+        shape.lineWidth = width
+        shape.lineCap = .round
+        shape.lineJoin = .round
+        shape.contentsScale = UIScreen.main.scale
+        shape.drawsAsynchronously = true
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let size = bounds.size
+        guard size.width > 0, size.height > 0, size != previousSize else { return }
+        previousSize = size
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cloudLeft.frame = CGRect(
+            x: -size.width * 0.10, y: size.height * 0.12,
+            width: size.width * 0.67, height: size.height * 0.82)
+        cloudRight.frame = CGRect(
+            x: size.width * 0.39, y: size.height * 0.02,
+            width: size.width * 0.72, height: size.height * 0.88)
+        cloudBottom.frame = CGRect(
+            x: size.width * 0.18, y: size.height * 0.30,
+            width: size.width * 0.69, height: size.height * 0.85)
+
+        let width = min(ribbonWidth, size.width * 0.56)
+        let height = width * ribbonHeight / ribbonWidth
+        ribbon.frame = CGRect(
+            x: (size.width - width) * 0.5,
+            y: (size.height - height) * 0.5 - 1,
+            width: width, height: height)
+        let path = makeInfinityPath(in: ribbon.bounds)
+        for item in [aura, underside, mainStroke, glint] {
+            item.frame = ribbon.bounds
+            item.path = path
         }
-        var path = Path()
-        path.move(to: point(0.50, 0.50))
-        path.addCurve(to: point(0.25, 0.25),
-                      control1: point(0.40, 0.32), control2: point(0.35, 0.25))
-        path.addCurve(to: point(0.07, 0.50),
-                      control1: point(0.14, 0.25), control2: point(0.07, 0.37))
-        path.addCurve(to: point(0.25, 0.75),
-                      control1: point(0.07, 0.64), control2: point(0.14, 0.75))
-        path.addCurve(to: point(0.50, 0.50),
-                      control1: point(0.38, 0.75), control2: point(0.44, 0.60))
-        path.addCurve(to: point(0.75, 0.25),
-                      control1: point(0.56, 0.40), control2: point(0.63, 0.25))
-        path.addCurve(to: point(0.93, 0.50),
-                      control1: point(0.86, 0.25), control2: point(0.93, 0.37))
-        path.addCurve(to: point(0.75, 0.75),
-                      control1: point(0.93, 0.64), control2: point(0.86, 0.75))
-        path.addCurve(to: point(0.50, 0.50),
-                      control1: point(0.63, 0.75), control2: point(0.56, 0.60))
-        return path
+        CATransaction.commit()
+    }
+
+    // Rounded, balanced 2:1 infinity. Sized to 188 x 108 points in the view.
+    // Only the contour, not its geometry, responds to expressive voice energy.
+    private func makeInfinityPath(in rect: CGRect) -> CGPath {
+        let w = rect.width, h = rect.height
+        let path = UIBezierPath()
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: x * w, y: y * h)
+        }
+        path.move(to: pt(0.50, 0.50))
+        path.addCurve(to: pt(0.27, 0.18),
+                      controlPoint1: pt(0.42, 0.33), controlPoint2: pt(0.38, 0.18))
+        path.addCurve(to: pt(0.08, 0.50),
+                      controlPoint1: pt(0.16, 0.18), controlPoint2: pt(0.08, 0.31))
+        path.addCurve(to: pt(0.27, 0.82),
+                      controlPoint1: pt(0.08, 0.69), controlPoint2: pt(0.16, 0.82))
+        path.addCurve(to: pt(0.50, 0.50),
+                      controlPoint1: pt(0.38, 0.82), controlPoint2: pt(0.42, 0.67))
+        path.addCurve(to: pt(0.73, 0.18),
+                      controlPoint1: pt(0.58, 0.33), controlPoint2: pt(0.62, 0.18))
+        path.addCurve(to: pt(0.92, 0.50),
+                      controlPoint1: pt(0.84, 0.18), controlPoint2: pt(0.92, 0.31))
+        path.addCurve(to: pt(0.73, 0.82),
+                      controlPoint1: pt(0.92, 0.69), controlPoint2: pt(0.84, 0.82))
+        path.addCurve(to: pt(0.50, 0.50),
+                      controlPoint1: pt(0.62, 0.82), controlPoint2: pt(0.58, 0.67))
+        return path.cgPath
+    }
+
+    // Individual composited layers drift slowly without triggering SwiftUI
+    // body or layout recalculations. Paused by Core Animation automatically.
+    private func startAmbientMovement() {
+        addDrift(cloudLeft, dx: 15, dy: -6, seconds: 11)
+        addDrift(cloudRight, dx: -18, dy: 7, seconds: 13)
+        addDrift(cloudBottom, dx: 7, dy: -9, seconds: 16)
+        let light = CABasicAnimation(keyPath: "lineDashPhase")
+        light.fromValue = 0
+        light.toValue = 390
+        light.duration = 7.5
+        light.repeatCount = .infinity
+        glint.add(light, forKey: "quietGlint")
+    }
+
+    private func addDrift(_ cloud: CALayer, dx: CGFloat, dy: CGFloat, seconds: CFTimeInterval) {
+        for (axis, distance) in [("x", dx), ("y", dy)] {
+            let animation = CABasicAnimation(keyPath: "transform.translation." + axis)
+            animation.fromValue = -distance
+            animation.toValue = distance
+            animation.duration = seconds
+            animation.autoreverses = true
+            animation.repeatCount = .infinity
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            cloud.add(animation, forKey: "ambientDrift." + axis)
+        }
+    }
+
+    func update(phase: LabResonancePhase, bands: LabAudioBands, orbitActive: Bool) {
+        currentPhase = phase
+        let active = phase == .input || phase == .output
+        // User-approved preset: Graphite + Expressive.
+        let low = active ? min(1, bands.low * 1.7) : 0
+        let mid = active ? min(1, bands.mid * 1.7) : 0
+        let high = active ? min(1, bands.high * 1.7) : 0
+        let energy = max(low, max(mid, high))
+
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.12)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        cloudLeft.opacity = Float(0.38 + low * 0.51)
+        cloudRight.opacity = Float(0.38 + mid * 0.54)
+        cloudBottom.opacity = Float(0.29 + high * 0.61)
+        aura.opacity = Float(0.16 + energy * 0.60 + (phase == .processing ? 0.11 : 0))
+        aura.lineWidth = 15 + CGFloat(low) * 12
+        glint.opacity = Float(0.22 + high * 0.58)
+        mainStroke.lineWidth = 6.5 + CGFloat(mid) * 1.3
+        // The form stays legible; dynamic change < 6%, unlike old 280px symbol.
+        ribbon.transform = CATransform3DMakeScale(
+            CGFloat(1 + low * 0.049), CGFloat(1 + mid * 0.048), 1)
+        let fade: Float = orbitActive ? 0.08 : 1.0
+        ribbon.opacity = fade
+        CATransaction.commit()
     }
 }

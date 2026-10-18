@@ -51,6 +51,8 @@ import SwiftUI
     private var operation: Task<Void, Never>?
     private var generation = UUID()
     private var recordingStarted = Date()
+    private var lastMicrophoneVisualUpdate = 0.0
+    private var pendingMicrophoneBands: LabAudioBands = .silence
     private var translationTarget = "de"
 
     var busy: Bool { phase != .idle && phase != .playing }
@@ -130,6 +132,8 @@ import SwiftUI
         detail = ""
         levels = Array(repeating: 0, count: 40)
         visualBands = .silence
+        lastMicrophoneVisualUpdate = 0
+        pendingMicrophoneBands = .silence
         clearCachedSpeech()
         elapsed = 0
         phase = .arming
@@ -145,13 +149,19 @@ import SwiftUI
                     },
                     onLevel: { [weak self] value in
                         guard let self, self.generation == token && self.phase == .recording else { return }
+                        // Avoid re-rendering the entire SwiftUI screen at mic tap rate.
+                        // 20 Hz is enough for expressive light while Core Animation stays smooth.
+                        let now = ProcessInfo.processInfo.systemUptime
+                        guard now - self.lastMicrophoneVisualUpdate >= 0.05 else { return }
+                        self.lastMicrophoneVisualUpdate = now
                         self.levels.removeFirst()
                         self.levels.append(value)
+                        self.visualBands = self.pendingMicrophoneBands
                         self.elapsed = Date().timeIntervalSince(self.recordingStarted)
                     },
                     onBands: { [weak self] bands in
                         guard let self, self.generation == token && self.phase == .recording else { return }
-                        self.visualBands = bands
+                        self.pendingMicrophoneBands = bands
                     },
                     onFinish: { [weak self] result in
                         guard let self, self.generation == token else { return }
@@ -356,7 +366,7 @@ import SwiftUI
                 )
                 self.levels.removeFirst()
                 self.levels.append(self.visualBands.overall)
-                try? await Task.sleep(for: .milliseconds(33))
+                try? await Task.sleep(for: .milliseconds(50))
             }
         }
     }
