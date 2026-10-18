@@ -9,7 +9,8 @@ struct StreamTests {
         try good.ingest(["type": "response.output_text.delta", "delta": "Tag."])
         try good.ingest(["type": "response.output_text.done", "text": "Guten Tag."])
         try good.ingest(["type": "response.completed"])
-        assert(try good.finish() == "Guten Tag.")
+        let finalText = try good.finish()
+        assert(finalText == "Guten Tag.")
 
         var completedOnly = LabResponseStream()
         try completedOnly.ingest([
@@ -21,7 +22,8 @@ struct StreamTests {
                 ]]
             ]
         ])
-        assert(try completedOnly.finish() == "Hallo!")
+        let fallbackText = try completedOnly.finish()
+        assert(fallbackText == "Hallo!")
 
         var incomplete = LabResponseStream()
         try incomplete.ingest(["type": "response.output_text.delta", "delta": "Half"])
