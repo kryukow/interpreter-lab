@@ -19,14 +19,14 @@ enum LabTranslator {
 
     // Sign in with ChatGPT requires store=false, stream=true, and array input.
     // For consistent comparison paid API uses the same SSE protocol.
-    static func translate(_ text: String, source: String, model: String,
+    static func translate(_ text: String, source: String, target: String, model: String,
                           bearerToken: String) async throws -> String {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { throw TranslationError.emptyInput }
         guard !model.isEmpty else { throw TranslationError.missingModel }
         let bounded = String(input.prefix(6000))
-        let sourceName = source == "ru" ? "Russian" : "German"
-        let targetName = source == "ru" ? "German" : "Russian"
+        let sourceName = PartnerLanguage.sourceName(source)
+        let targetName = PartnerLanguage.sourceName(target)
         let instructions = """
         You are a professional interpreter translating an imperfect spoken utterance from \(sourceName) into \(targetName).
         Interpret the full utterance before writing your answer. Correct clear speech-recognition mistakes, hesitation, grammar, and filler words when the intended meaning is supported by context.
