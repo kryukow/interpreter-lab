@@ -26,6 +26,14 @@ struct LabView: View {
     private var partner: PartnerLanguage { PartnerLanguage.current(partnerCode) }
     private var languages: [PartnerLanguage] { PartnerLanguage.allCases }
     private var canChangeLanguage: Bool { model.phase == .idle && model.held == nil }
+    private var resonancePhase: LabResonancePhase {
+        switch model.phase {
+        case .recording: return .input
+        case .recognizing, .translating, .preparingVoice: return .processing
+        case .playing: return .output
+        case .idle, .arming: return .idle
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -62,11 +70,13 @@ struct LabView: View {
                 .padding(.top, 12)
 
                 ZStack {
-                    Image(systemName: "infinity")
-                        .font(.system(size: 76, weight: .light))
-                        .opacity(orbitActive ? 0.10 : 1)
-                        .scaleEffect(orbitActive ? 1.7 : 1)
-                        .accessibilityHidden(true)
+                    LabGraphiteResonance(
+                        phase: resonancePhase,
+                        bands: model.visualBands,
+                        orbitActive: orbitActive
+                    )
+                    .frame(height: 168)
+                    .accessibilityHidden(true)
 
                     ForEach(languages) { choice in
                         let distance = cyclicDistance(for: choice)
@@ -98,12 +108,12 @@ struct LabView: View {
                         .offset(y: 49)
                         .opacity(orbitActive ? 1 : 0)
                 }
-                .frame(height: 123)
+                .frame(height: 168)
                 .animation(.spring(response: 0.33, dampingFraction: 0.83), value: orbitActive)
                 .animation(.spring(response: 0.29, dampingFraction: 0.85), value: partnerCode)
                 .sensoryFeedback(.selection, trigger: partnerCode)
 
-                MicrophoneWaveform(levels: model.levels, recording: model.phase == .recording)
+                MicrophoneWaveform(levels: model.levels, recording: model.phase == .recording || model.phase == .playing)
                     .frame(height: 23)
 
                 VStack(spacing: 3) {
