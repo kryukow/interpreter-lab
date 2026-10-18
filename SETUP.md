@@ -11,7 +11,7 @@
 
 ## Сборка
 - Xcode + XcodeGen, iOS 18.4+; отдельный Bundle ID: `org.interpreter.lab`.
-- Установить XcodeGen: `brew install xcodegen`, затем `xcodegen generate` в корне репозитория.
+- Установить XcodeGen: `brew install xcodegen`; затем выполнить `swift scripts/make-icon.swift` и `xcodegen generate` в корне репозитория. Скрипт подготавливает отдельную иконку LAB в формате 1024×1024 RGB.
 - Открыть `InterpreterLab.xcodeproj`, схема `InterpreterLab`.
 - GitHub Actions → **Interpreter Lab iOS** собирает симулятор и iPhone, публикует **Interpreter-Lab-0.1.0-Unsigned-iPhone**. Для установки IPA на реальное устройство его необходимо подписать.
 
