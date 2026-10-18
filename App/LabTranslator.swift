@@ -8,17 +8,18 @@ enum LabTranslator {
             case .emptyInput: return "Сначала произнеси или напиши фразу."
             case .emptyOutput: return "Модель вернула пустой перевод. Попробуй ещё раз."
             case .http(let code, let detail):
-                if code == 401 { return "API-ключ недействителен. Проверь его в настройках." }
-                if code == 429 { return "Лимит API или средств исчерпан. Проверь баланс OpenAI." }
+                if code == 401 { return "Авторизация истекла или отклонена. Обнови вход ChatGPT либо проверь API-ключ." }
+                if code == 429 { return "Достигнут лимит запросов или баланс API исчерпан." }
                 return "Ошибка OpenAI HTTP \(code): \(detail)"
             }
         }
     }
 
     // This makes one complete request after recognition has finished.
-    static func translate(_ text: String, source: String, model: String, apiKey: String) async throws -> String {
+    static func translate(_ text: String, source: String, model: String, bearerToken: String) async throws -> String {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { throw TranslationError.emptyInput }
+        guard !model.isEmpty else { throw TranslationError.http(400, "Выбери модель перевода в настройках.") }
         let bounded = String(input.prefix(6000))
         let sourceName = source == "ru" ? "Russian" : "German"
         let targetName = source == "ru" ? "German" : "Russian"
@@ -37,7 +38,7 @@ enum LabTranslator {
         request.httpMethod = "POST"
         request.timeoutInterval = 45
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         let (data, reply) = try await URLSession.shared.data(for: request)
         try Task.checkCancellation()
