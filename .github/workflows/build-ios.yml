@@ -56,6 +56,10 @@ jobs:
         run: |
           swiftc App/PartnerLanguage.swift App/LabLanguageBridge.swift Tests/LanguageTests.swift -o "$RUNNER_TEMP/lab-language-tests"
           "$RUNNER_TEMP/lab-language-tests"
+      - name: Test Graphite voice-reactive frequency bands
+        run: |
+          swiftc App/LabAudioBands.swift Tests/AudioBandsTests.swift -o "$RUNNER_TEMP/lab-bands-tests"
+          "$RUNNER_TEMP/lab-bands-tests"
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Verify byte-identical Live visual assets
@@ -68,7 +72,20 @@ jobs:
           from pathlib import Path
           ui = Path("App/InterpreterLabApp.swift").read_text()
           assert "PressButton(title: title" in ui
-          assert "MicrophoneWaveform(levels: model.levels, recording: model.phase == .recording)" in ui
+          assert "LabGraphiteResonance(" in ui
+          assert "bands: model.visualBands" in ui
+          assert "MicrophoneWaveform(levels: model.levels, recording: model.phase == .recording || model.phase == .playing)" in ui
+          resonance = Path("App/LabGraphiteResonance.swift").read_text()
+          assert "TimelineView(.animation" in resonance
+          assert "bass * 0.075" in resonance
+          assert "mids * 0.050" in resonance
+          assert "colors: [" in resonance
+          audio = Path("App/LabSpeechExporter.swift").read_text()
+          assert "synth.write(utterance)" in audio
+          assert "LabPlaybackSpectrum" in audio
+          session = Path("App/LabSession.swift").read_text()
+          assert "startPlaybackMeter(token: token" in session
+          assert "playRegularAppleVoice" in session
           assert "private var languageDrag: some Gesture" in ui
           assert ".animation(.spring(response: 0.33, dampingFraction: 0.83), value: orbitActive)" in ui
           assert ".animation(.spring(response: 0.29, dampingFraction: 0.85), value: partnerCode)" in ui
@@ -100,18 +117,18 @@ jobs:
           app = Path(os.environ["RUNNER_TEMP"]) / "LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app"
           info = plistlib.loads((app / "Info.plist").read_bytes())
           assert info["CFBundleIdentifier"] == "org.interpreter.lab"
-          assert info["CFBundleShortVersionString"] == "0.3.1"
+          assert info["CFBundleShortVersionString"] == "0.4.0"
           assert info["NSMicrophoneUsageDescription"]
           assert info["NSSpeechRecognitionUsageDescription"]
           print("Verified Interpreter Lab iOS .app bundle")
           PY
           mkdir -p "$RUNNER_TEMP/lab-package/Payload"
           cp -R "$RUNNER_TEMP/LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app" "$RUNNER_TEMP/lab-package/Payload/"
-          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.3.1-Unsigned.ipa" Payload)
-          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.3.1-Unsigned.ipa"
+          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.4.0-Unsigned.ipa" Payload)
+          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.4.0-Unsigned.ipa"
       - uses: actions/upload-artifact@v4
         with:
-          name: Interpreter-Lab-0.3.1-Unsigned-iPhone
-          path: ${{ runner.temp }}/Interpreter-Lab-0.3.1-Unsigned.ipa
+          name: Interpreter-Lab-0.4.0-Unsigned-iPhone
+          path: ${{ runner.temp }}/Interpreter-Lab-0.4.0-Unsigned.ipa
           if-no-files-found: error
           retention-days: 7
