@@ -39,7 +39,6 @@ struct LabView: View {
                         .frame(width: 3, height: model.phase == .recording ? max(3, model.levels[index] * 42) : 3)
                 }
             }.frame(height: 44).accessibilityHidden(true)
-
             VStack(spacing: 5) {
                 Text(model.message).font(.headline).multilineTextAlignment(.center)
                 if model.phase == .recording {
@@ -130,12 +129,10 @@ struct LabView: View {
     }
 
     private func talk(_ title: String, language: String, target: String) -> some View {
-        LabPressButton(title: title, subtitle: target, pressed: model.held == language,
-                       enabled: model.canBegin || model.held == language,
-                       begin: { model.begin(language) },
-                       end: { model.end(language) },
-                       cancel: { model.abort(language) })
-            .frame(maxWidth: .infinity)
+        PressButton(title: title, subtitle: target, pressed: model.held == language,
+                    enabled: !model.busy || model.held == language,
+                    begin: { model.begin(language) }, end: { model.end(language) },
+                    cancel: { model.abort(language) }).frame(maxWidth: .infinity)
     }
 
     private func updateAwake() {
@@ -156,11 +153,6 @@ struct LabSettings: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Экспериментальный режим") {
-                    Text("Apple Speech → OpenAI Responses API → AVSpeechSynthesizer")
-                    Text("Нет Realtime/WebRTC и потокового звука OpenAI. Русский и немецкий распознаёт Apple; для некоторых языков Apple может использовать сервер.")
-                        .font(.footnote)
-                }
                 Section("Способ перевода") {
                     Picker("Использовать", selection: $model.authSource) {
                         Text("Подписка ChatGPT · основной").tag("chatgpt")
@@ -175,18 +167,20 @@ struct LabSettings: View {
                     Section("ChatGPT") {
                         Text(model.chatGPTAccount.isEmpty ? "Вход не выполнен" : "Подключён аккаунт: \(model.chatGPTAccount)")
                             .font(.footnote)
-                        Button("Войти через ChatGPT") {
-                            authenticating = true
-                            notice = ""
-                            Task {
-                                defer { authenticating = false }
-                                do {
-                                    try await login.signIn()
-                                    try await model.loadChatGPTModels()
-                                    notice = "ChatGPT подключён. Теперь можно переводить."
-                                } catch { notice = error.localizedDescription }
-                            }
-                        }.disabled(authenticating)
+                        if model.chatGPTAccount.isEmpty {
+                            Button("Войти через ChatGPT") {
+                                authenticating = true
+                                notice = ""
+                                Task {
+                                    defer { authenticating = false }
+                                    do {
+                                        try await login.signIn()
+                                        try await model.loadChatGPTModels()
+                                        notice = "ChatGPT подключён. Теперь можно переводить."
+                                    } catch { notice = error.localizedDescription }
+                                }
+                            }.disabled(authenticating)
+                        }
                         if !model.chatGPTAccount.isEmpty {
                             Button("Обновить модели") {
                                 authenticating = true
@@ -257,15 +251,12 @@ struct LabSettings: View {
                 Section("Экран") {
                     Toggle("Не гасить экран", isOn: $keepAwake)
                 }
-                Section("О приложении") {
-                    Text("Экспериментальная сборка. Не влияет на Interpreter Live.")
-                    Text(model.version).foregroundStyle(.secondary)
-                }
                 if !notice.isEmpty {
                     Section { Text(notice).font(.footnote) }
                 }
             }
             .navigationTitle("Настройки")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Готово") { key = ""; dismiss() }.disabled(authenticating)
