@@ -1,0 +1,76 @@
+name: Interpreter Lab iOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: interpreter-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check independent application boundaries
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          yml = Path("project.yml").read_text()
+          assert "org.interpreter.lab" in yml
+          assert "InterpreterLab" in yml
+          assert "NSSpeechRecognitionUsageDescription" in yml
+          assert "NSMicrophoneUsageDescription" in yml
+          code = "\n".join(p.read_text() for p in Path("App").glob("*.swift"))
+          assert "AVSpeechSynthesizer" in code
+          assert "SFSpeechRecognizer" in code
+          assert "/v1/responses" in code
+          assert "api.openai.com/v1/audio" not in code
+          assert "RealtimeTranslation" not in code
+          print("Lab is an independent speech-to-text / text-translation / TTS app")
+          PY
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate iOS project
+        run: xcodegen generate
+      - name: Build iOS Simulator
+        run: |
+          xcodebuild -project InterpreterLab.xcodeproj -scheme InterpreterLab \
+            -configuration Debug -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/LabSimulator" CODE_SIGNING_ALLOWED=NO build
+      - name: Build for iPhone
+        run: |
+          xcodebuild -project InterpreterLab.xcodeproj -scheme InterpreterLab \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/LabDevice" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Verify product and package unsigned IPA
+        run: |
+          python3 - <<'PY'
+          import os, plistlib
+          from pathlib import Path
+          app = Path(os.environ["RUNNER_TEMP"]) / "LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app"
+          info = plistlib.loads((app / "Info.plist").read_bytes())
+          assert info["CFBundleIdentifier"] == "org.interpreter.lab"
+          assert info["CFBundleShortVersionString"] == "0.1.0"
+          assert info["NSMicrophoneUsageDescription"]
+          assert info["NSSpeechRecognitionUsageDescription"]
+          print("Verified Interpreter Lab iOS .app bundle")
+          PY
+          mkdir -p "$RUNNER_TEMP/lab-package/Payload"
+          cp -R "$RUNNER_TEMP/LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app" "$RUNNER_TEMP/lab-package/Payload/"
+          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.1.0-Unsigned.ipa" Payload)
+          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.1.0-Unsigned.ipa"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Interpreter-Lab-0.1.0-Unsigned-iPhone
+          path: ${{ runner.temp }}/Interpreter-Lab-0.1.0-Unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
