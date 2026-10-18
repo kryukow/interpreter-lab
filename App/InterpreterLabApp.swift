@@ -9,73 +9,149 @@ struct InterpreterLabApp: App {
     }
 }
 
+// The header, orbit animation, gesture logic and microphone Canvas are sourced
+// from Interpreter Live 1.4.23. Only the app title and data/gesture callbacks
+// are connected to Lab's non-Realtime translation pipeline.
 struct LabView: View {
     @StateObject private var model = LabSession()
     @State private var settings = false
     @AppStorage("lab.keepAwake") private var keepAwake = true
+    @AppStorage("lab.partnerLanguage") private var partnerCode = "de"
+    @State private var orbitActive = false
+    @State private var orbitDragStart = 0
+    @State private var orbitStarted = false
+    @State private var orbitHide: Task<Void, Never>?
     @Environment(\.scenePhase) private var scenePhase
 
+    private var partner: PartnerLanguage { PartnerLanguage.current(partnerCode) }
+    private var languages: [PartnerLanguage] { PartnerLanguage.allCases }
+    private var canChangeLanguage: Bool { model.phase == .idle && model.held == nil }
+
     var body: some View {
-        VStack(spacing: 16) {
-            HStack {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("INTERPRETER LAB").font(.caption2).tracking(3).foregroundStyle(.secondary)
-                    Text("Русский ↔ Deutsch").font(.title2.bold())
+        ScrollView {
+            VStack(spacing: 11) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text("INTERPRETER LAB")
+                            .font(.system(size: 10, weight: .medium))
+                            .tracking(3.2)
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 7) {
+                            Text("Русский ↔")
+                                .font(.title2.bold())
+                                .fixedSize()
+                            Text(partner.name)
+                                .font(.title2.bold())
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.73)
+                                .contentShape(Rectangle())
+                                .gesture(languageDrag)
+                                .accessibilityLabel("Язык: \(partner.name). Проведи пальцем влево или вправо")
+                                .accessibilityAddTraits(.isButton)
+                        }
+                    }
+                    Spacer(minLength: 6)
+                    Button { model.stopAll(); settings = true } label: {
+                        Image(systemName: "gearshape")
+                            .font(.title2.weight(.medium))
+                            .frame(width: 36, height: 36)
+                    }
+                    .disabled(!canChangeLanguage)
+                    .accessibilityLabel("Настройки")
                 }
-                Spacer()
-                Button {
-                    model.stopAll()
-                    settings = true
-                } label: {
-                    Image(systemName: "gearshape.fill").font(.title2)
-                }
-                .accessibilityLabel("Настройки")
-            }
+                .padding(.top, 12)
 
-            Image(systemName: "infinity").font(.system(size: 52, weight: .light))
-            HStack(spacing: 4) {
-                ForEach(0..<40, id: \.self) { index in
-                    Capsule().fill(.white.opacity(0.85))
-                        .frame(width: 3, height: model.phase == .recording ? max(3, model.levels[index] * 42) : 3)
-                }
-            }.frame(height: 44).accessibilityHidden(true)
-            VStack(spacing: 5) {
-                Text(model.message).font(.headline).multilineTextAlignment(.center)
-                if model.phase == .recording {
-                    Text(String(format: "● %.1f с", model.elapsed)).font(.caption.monospacedDigit())
-                }
-                if model.busy && model.phase != .recording && model.phase != .arming {
-                    Button("Остановить") { model.stopAll() }
-                        .font(.caption).foregroundStyle(.white.opacity(0.85))
-                }
-            }.frame(minHeight: 56)
+                ZStack {
+                    Image(systemName: "infinity")
+                        .font(.system(size: 76, weight: .light))
+                        .opacity(orbitActive ? 0.10 : 1)
+                        .scaleEffect(orbitActive ? 1.7 : 1)
+                        .accessibilityHidden(true)
 
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("РАСПОЗНАВАНИЕ").font(.caption2).foregroundStyle(.secondary)
-                    Text("Apple Speech").font(.subheadline.bold())
+                    ForEach(languages) { choice in
+                        let distance = cyclicDistance(for: choice)
+                        let active = distance == 0
+                        Button {
+                            selectLanguage(choice)
+                            scheduleOrbitHide(after: 0.65)
+                        } label: {
+                            Text(choice.shortCode)
+                                .font(.system(size: active ? 24 : 19, weight: .bold))
+                                .foregroundStyle(active ? Color.black : Color.white)
+                                .frame(width: active ? 65 : 47, height: active ? 58 : 50)
+                                .background(
+                                    active ? Color(white: 0.91) : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 18)
+                                )
+                                .opacity(active ? 1 : abs(distance) == 1 ? 0.72 : 0.28)
+                                .scaleEffect(active ? 1 : abs(distance) == 1 ? 0.90 : 0.70)
+                        }
+                        .buttonStyle(.plain)
+                        .offset(x: CGFloat(distance) * 70)
+                        .opacity(orbitActive ? 1 : 0)
+                        .allowsHitTesting(orbitActive && canChangeLanguage)
+                        .accessibilityLabel(choice.name)
+                    }
+                    Text("\(partner.shortCode) · \(partner.name) · выбрано")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .offset(y: 49)
+                        .opacity(orbitActive ? 1 : 0)
                 }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("ПЕРЕВОД").font(.caption2).foregroundStyle(.secondary)
-                    Text(model.authSource == "chatgpt" ? "ChatGPT Plus" : "OpenAI API").font(.subheadline.bold())
+                .frame(height: 123)
+                .animation(.spring(response: 0.33, dampingFraction: 0.83), value: orbitActive)
+                .animation(.spring(response: 0.29, dampingFraction: 0.85), value: partnerCode)
+                .sensoryFeedback(.selection, trigger: partnerCode)
+
+                MicrophoneWaveform(levels: model.levels, recording: model.phase == .recording)
+                    .frame(height: 23)
+
+                VStack(spacing: 3) {
+                    Text(model.message)
+                        .font(.subheadline.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                    if model.phase == .recording {
+                        Text(String(format: "● %.1f с", model.elapsed))
+                            .font(.caption.monospacedDigit())
+                    }
+                    if model.busy && model.phase != .recording && model.phase != .arming {
+                        Button("Остановить") { model.stopAll() }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }.frame(minHeight: 27)
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("РАСПОЗНАВАНИЕ").font(.caption2).foregroundStyle(.secondary)
+                        Text("Apple Speech").font(.subheadline.bold())
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("ПЕРЕВОД").font(.caption2).foregroundStyle(.secondary)
+                        Text(model.authSource == "chatgpt" ? "ChatGPT Plus" : "OpenAI API")
+                            .font(.subheadline.bold())
+                    }
                 }
-            }.padding(16).background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 22))
+                .padding(16)
+                .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 22))
 
-            HStack(spacing: 16) {
-                talk("Русский", language: "ru", target: "→ DEUTSCH")
-                talk("Deutsch", language: "de", target: "→ РУССКИЙ")
-            }.frame(height: 145)
+                HStack(spacing: 12) {
+                    talk("Русский", language: "ru", target: "→ \(partner.uppercaseName)")
+                    talk(partner.buttonName, language: partner.rawValue, target: "→ РУССКИЙ")
+                }.frame(height: 136)
 
-            Text("Держи → вибросигнал → говори → отпусти")
-                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text("Держи → вибросигнал → говори → отпусти")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
 
-            ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("ГОЛОСОВОЙ ПЕРЕВОД · LAB")
                         .font(.caption).foregroundStyle(.secondary)
 
-                    Text("РАСПОЗНАНО · \(model.language == "ru" ? "РУССКИЙ" : "DEUTSCH")")
+                    Text("РАСПОЗНАНО · \(model.language == "ru" ? "РУССКИЙ" : partner.uppercaseName)")
                         .font(.caption2).foregroundStyle(.secondary)
                     TextEditor(text: $model.source)
                         .frame(minHeight: 65, maxHeight: 120)
@@ -89,37 +165,42 @@ struct LabView: View {
                                     .allowsHitTesting(false)
                             }
                         }
+
                     Button("Перевести текст") { model.translate() }
                         .disabled(model.busy || model.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
                     Divider()
                     Text("ПЕРЕВОД").font(.caption2).foregroundStyle(.secondary)
                     Text(model.translation.isEmpty ? "—" : model.translation)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-
                     Button("Прослушать снова · бесплатно") { model.replay() }
                         .disabled(!model.canReplay)
                     if !model.detail.isEmpty {
                         Text(model.detail).font(.caption2).foregroundStyle(.secondary)
                     }
-                    Text("В Lab запись заканчивается по отпусканию кнопки. OpenAI получает только распознанный текст, а встроенный голос Apple озвучивает окончательный перевод.")
-                        .font(.footnote).foregroundStyle(.secondary)
                 }
-                .padding(18)
-                .background(Color(white: 0.055), in: RoundedRectangle(cornerRadius: 22))
-            }
-            .frame(maxHeight: .infinity)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(white: 0.075), in: RoundedRectangle(cornerRadius: 16))
 
-            Text(model.version).font(.caption2).foregroundStyle(.secondary)
+                Text(model.version).font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 14)
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 24).padding(.vertical, 12)
-        .background(Color.black).tint(.white)
+        .scrollIndicators(.hidden)
+        .background(Color.black)
+        .tint(.white)
         .sheet(isPresented: $settings) { LabSettings(model: model) }
-        .onAppear { updateAwake() }
+        .onAppear { model.setPartner(partner); updateAwake() }
         .onDisappear {
+            orbitHide?.cancel()
             UIApplication.shared.isIdleTimerDisabled = false
             model.stopAll()
+        }
+        .onChange(of: partnerCode) { _, value in
+            model.setPartner(PartnerLanguage.current(value))
         }
         .onChange(of: keepAwake) { _, _ in updateAwake() }
         .onChange(of: scenePhase) { _, phase in
@@ -128,11 +209,58 @@ struct LabView: View {
         }
     }
 
+    /// Circular positions keep the selected language at the exact centre.
+    private func cyclicDistance(for choice: PartnerLanguage) -> Int {
+        guard let center = languages.firstIndex(of: partner),
+              let index = languages.firstIndex(of: choice) else { return 0 }
+        let distance = (index - center + languages.count) % languages.count
+        return distance <= languages.count / 2 ? distance : distance - languages.count
+    }
+
+    /// Only the foreign language label captures gestures. Russian never moves.
+    private var languageDrag: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard canChangeLanguage else { return }
+                if !orbitStarted {
+                    orbitHide?.cancel()
+                    orbitDragStart = languages.firstIndex(of: partner) ?? 0
+                    orbitStarted = true
+                    withAnimation { orbitActive = true }
+                }
+                let steps = Int((-value.translation.width / 52).rounded())
+                let n = (orbitDragStart + steps % languages.count + languages.count) % languages.count
+                selectLanguage(languages[n])
+            }
+            .onEnded { value in
+                orbitStarted = false
+                scheduleOrbitHide(after: abs(value.translation.width) < 8 ? 3.5 : 0.6)
+            }
+    }
+
+    private func selectLanguage(_ choice: PartnerLanguage) {
+        guard canChangeLanguage else { return }
+        partnerCode = choice.rawValue
+        model.setPartner(choice)
+    }
+
+    private func scheduleOrbitHide(after seconds: Double) {
+        orbitHide?.cancel()
+        orbitHide = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            withAnimation { orbitActive = false }
+        }
+    }
+
     private func talk(_ title: String, language: String, target: String) -> some View {
-        PressButton(title: title, subtitle: target, pressed: model.held == language,
+        PressButton(title: title, subtitle: target,
+                    pressed: model.held == language,
                     enabled: !model.busy || model.held == language,
-                    begin: { model.begin(language) }, end: { model.end(language) },
-                    cancel: { model.abort(language) }).frame(maxWidth: .infinity)
+                    begin: { model.begin(language) },
+                    end: { model.end(language) },
+                    cancel: { model.abort(language) })
+            .frame(maxWidth: .infinity)
     }
 
     private func updateAwake() {
