@@ -38,6 +38,10 @@ jobs:
           PY
       - name: Install XcodeGen
         run: brew install xcodegen
+      - name: Render dedicated LAB app icon
+        run: |
+          swift scripts/make-icon.swift
+          sips -g pixelWidth -g pixelHeight App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
       - name: Generate iOS project
         run: xcodegen generate
       - name: Build iOS Simulator
