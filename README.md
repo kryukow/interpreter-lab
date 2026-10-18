@@ -17,10 +17,11 @@
 - XcodeGen: `brew install xcodegen && swift scripts/make-icon.swift && xcodegen generate`
 - Иконка LAB генерируется из собственного чёрно-белого изображения `Design/LabIcon512.png`
 - Схема: `InterpreterLab`; минимальная iOS: 18.4
-- CI: [GitHub Actions](https://github.com/kryukow/interpreter-lab/actions/workflows/build-ios.yml), артефакт `Interpreter-Lab-0.1.0-Unsigned-iPhone`
+- CI: [GitHub Actions](https://github.com/kryukow/interpreter-lab/actions/workflows/build-ios.yml), артефакт `Interpreter-Lab-0.2.0-Unsigned-iPhone`
 - Bundle ID: `org.interpreter.lab` — независим от основной программы
-- Ключ OpenAI добавляется в настройках приложения и хранится в Keychain
-- **В этой версии перевод через платный API, а озвучивание через Apple TTS. Подписка ChatGPT Plus не используется.**
+- Главный режим: **войти через ChatGPT**, получить список доступных текстовых моделей и выбрать модель. Вход и обновление токена перенесены из основного Interpreter; сессия Lab хранится отдельно.
+- Для дополнительного платного режима API-ключ добавляется в настройках и хранится в отдельной записи Keychain
+- **В этой версии перевод через **Sign in with ChatGPT (основной вариант)**, с возможностью переключения на **платный API**. Озвучивание — Apple TTS.**
 
 ### План эксперимента
 
