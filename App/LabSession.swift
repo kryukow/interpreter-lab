@@ -3,8 +3,8 @@ import AVFoundation
 import UIKit
 import SwiftUI
 
-@MainActor final class LabSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
-    enum Phase: Equatable { case idle, arming, recording, recognizing, translating, playing }
+@MainActor final class LabSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
+    enum Phase: Equatable { case idle, arming, recording, recognizing, translating, preparingVoice, playing }
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var held: String?
     @Published private(set) var message = "Удерживай кнопку нужного языка"
@@ -13,6 +13,7 @@ import SwiftUI
     @Published private(set) var language = "ru"
     @Published private(set) var partner = PartnerLanguage.current(UserDefaults.standard.string(forKey: "lab.partnerLanguage") ?? "de")
     @Published private(set) var levels = Array(repeating: 0.0, count: 40)
+    @Published private(set) var visualBands: LabAudioBands = .silence
     @Published private(set) var elapsed = 0.0
     @Published private(set) var detail = ""
     @Published private(set) var keySaved = false
@@ -40,7 +41,12 @@ import SwiftUI
 
     private let capture = LabSpeechCapture()
     private let speaker = AVSpeechSynthesizer()
+    private let renderedSpeech = LabSpeechExporter()
     private var currentUtterance: AVSpeechUtterance?
+    private var outputPlayer: AVAudioPlayer?
+    private var outputSpectrum: LabPlaybackSpectrum?
+    private var playbackMeter: Task<Void, Never>?
+    private var cachedSpeech: (text: String, voiceID: String, url: URL, spectrum: LabPlaybackSpectrum)?
     private var watchdog: Task<Void, Never>?
     private var operation: Task<Void, Never>?
     private var generation = UUID()
@@ -123,6 +129,8 @@ import SwiftUI
         translation = ""
         detail = ""
         levels = Array(repeating: 0, count: 40)
+        visualBands = .silence
+        clearCachedSpeech()
         elapsed = 0
         phase = .arming
         message = "Готовлю микрофон · пока не говори"
@@ -140,6 +148,10 @@ import SwiftUI
                         self.levels.removeFirst()
                         self.levels.append(value)
                         self.elapsed = Date().timeIntervalSince(self.recordingStarted)
+                    },
+                    onBands: { [weak self] bands in
+                        guard let self, self.generation == token && self.phase == .recording else { return }
+                        self.visualBands = bands
                     },
                     onFinish: { [weak self] result in
                         guard let self, self.generation == token else { return }
@@ -183,6 +195,7 @@ import SwiftUI
         guard phase == .recording else { return }
         elapsed = Date().timeIntervalSince(recordingStarted)
         phase = .recognizing
+        visualBands = .silence
         message = "Микрофон выключен · завершаю распознавание"
         capture.finish()
     }
@@ -219,6 +232,7 @@ import SwiftUI
         let model = selectedSource == "chatgpt" ? chatGPTModel : modelID
         translationTarget = from == "ru" ? partner.rawValue : "ru"
         translation = ""
+        clearCachedSpeech()
         phase = .translating
         message = "OpenAI · перевожу готовую фразу"
         detail = "\(from == "ru" ? "Русский → \(partner.name)" : "\(partner.name) → Русский") · \(model) · \(selectedSource == "chatgpt" ? "ChatGPT" : "API")"
@@ -260,34 +274,112 @@ import SwiftUI
     private func speak() {
         guard !translation.isEmpty else { return }
         haltPlayback()
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-            try session.setActive(true)
-        } catch {
-            phase = .idle
-            message = "Не удалось включить динамик: \(error.localizedDescription)"
-            return
-        }
         let utterance = AVSpeechUtterance(string: translation)
         let storedID = translationTarget == "ru" ? russianVoiceID :
             UserDefaults.standard.string(forKey: "lab.voice.\(translationTarget)") ?? ""
         utterance.voice = AVSpeechSynthesisVoice(identifier: storedID)
             ?? AVSpeechSynthesisVoice(language: PartnerLanguage.voiceLocale(for: translationTarget))
-        guard utterance.voice != nil else {
+        guard let voice = utterance.voice else {
             phase = .idle
             message = "Голос Apple для этого языка недоступен. Установи его в настройках iPhone."
             return
         }
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         utterance.pitchMultiplier = 1.0
+        visualBands = .silence
+
+        // Exact rendered Apple speech PCM drives both the sound and the animation.
+        // Keep the original speak() API as a safe fallback if offline rendering fails.
+        phase = .preparingVoice
+        message = "Apple TTS · подготавливаю звук для визуализации"
+        let token = generation
+        let text = translation
+        operation?.cancel()
+        operation = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let url: URL
+                let spectrum: LabPlaybackSpectrum
+                if let cached = self.cachedSpeech,
+                   cached.text == text && cached.voiceID == voice.identifier {
+                    url = cached.url
+                    spectrum = cached.spectrum
+                } else {
+                    url = try await self.renderedSpeech.render(utterance)
+                    guard self.generation == token && !Task.isCancelled else {
+                        try? FileManager.default.removeItem(at: url)
+                        return
+                    }
+                    spectrum = try LabPlaybackSpectrum(url: url)
+                    self.clearCachedSpeech()
+                    self.cachedSpeech = (text, voice.identifier, url, spectrum)
+                }
+                guard self.generation == token && !Task.isCancelled else { return }
+                let audioSession = AVAudioSession.sharedInstance()
+                try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+                try audioSession.setActive(true)
+                let player = try AVAudioPlayer(contentsOf: url)
+                player.isMeteringEnabled = true
+                player.delegate = self
+                guard player.prepareToPlay(), player.play() else {
+                    throw Failure.message("Не удалось запустить воспроизведение аудиофайла Apple.")
+                }
+                self.outputPlayer = player
+                self.outputSpectrum = spectrum
+                self.phase = .playing
+                self.message = "Звучит перевод · Graphite реагирует на Apple TTS"
+                self.startPlaybackMeter(token: token, player: player, spectrum: spectrum)
+            } catch {
+                guard self.generation == token && !Task.isCancelled else { return }
+                self.playRegularAppleVoice(utterance, token: token)
+            }
+        }
+    }
+
+    private func startPlaybackMeter(token: UUID, player: AVAudioPlayer,
+                                    spectrum: LabPlaybackSpectrum) {
+        playbackMeter?.cancel()
+        playbackMeter = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.generation == token,
+                      self.phase == .playing, self.outputPlayer === player else { return }
+                if !player.isPlaying { return }
+                player.updateMeters()
+                let loudness = pow(10, Double(player.averagePower(forChannel: 0)) / 20) * 9
+                let current = spectrum.bands(at: player.currentTime)
+                let factor = min(1, max(0, loudness))
+                // File spectrum gives timbre; AVAudioPlayer meter gates real silence.
+                self.visualBands = LabAudioBands(
+                    low: current.low * factor,
+                    mid: current.mid * factor,
+                    high: current.high * factor
+                )
+                self.levels.removeFirst()
+                self.levels.append(self.visualBands.overall)
+                try? await Task.sleep(for: .milliseconds(33))
+            }
+        }
+    }
+
+    private func playRegularAppleVoice(_ utterance: AVSpeechUtterance, token: UUID) {
+        renderedSpeech.cancel()
+        guard generation == token else { return }
+        visualBands = .silence
         currentUtterance = utterance
         phase = .playing
-        message = "Звучит перевод · Apple TTS"
+        message = "Звучит перевод · Apple TTS (резервное воспроизведение)"
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try session.setActive(true)
+        } catch {
+            phase = .idle
+            currentUtterance = nil
+            message = "Не удалось включить динамик: \(error.localizedDescription)"
+            return
+        }
         speaker.speak(utterance)
-        // A guarded fallback avoids a permanently muted interface if a TTS callback is lost.
         watchdog?.cancel()
-        let token = generation
         let timeout = max(45, min(240, Double(translation.count) * 0.24))
         watchdog = Task { [weak self] in
             try? await Task.sleep(for: .seconds(timeout))
@@ -299,11 +391,44 @@ import SwiftUI
         }
     }
 
+    private func clearCachedSpeech() {
+        if let cachedSpeech {
+            try? FileManager.default.removeItem(at: cachedSpeech.url)
+        }
+        cachedSpeech = nil
+    }
+
     private func haltPlayback() {
         watchdog?.cancel()
         watchdog = nil
+        playbackMeter?.cancel()
+        playbackMeter = nil
+        renderedSpeech.cancel()
         currentUtterance = nil
+        outputPlayer?.stop()
+        outputPlayer = nil
+        outputSpectrum = nil
+        visualBands = .silence
         if speaker.isSpeaking || speaker.isPaused { speaker.stopSpeaking(at: .immediate) }
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        guard outputPlayer === player else { return }
+        playbackMeter?.cancel()
+        playbackMeter = nil
+        outputPlayer = nil
+        outputSpectrum = nil
+        visualBands = .silence
+        levels = Array(repeating: 0, count: 40)
+        phase = .idle
+        message = flag ? "Готово · удерживай кнопку языка" : "Воспроизведение прервалось · можно повторить"
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        guard outputPlayer === player else { return }
+        haltPlayback()
+        phase = .idle
+        message = "Ошибка воспроизведения звука · повтори прослушивание"
     }
 
     func stopAll(message newMessage: String = "Остановлено · удерживай кнопку языка") {
@@ -312,6 +437,7 @@ import SwiftUI
         operation = nil
         capture.cancel()
         haltPlayback()
+        clearCachedSpeech()
         held = nil
         levels = Array(repeating: 0, count: 40)
         phase = .idle
