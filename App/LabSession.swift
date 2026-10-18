@@ -11,6 +11,7 @@ import SwiftUI
     @Published var source = ""
     @Published private(set) var translation = ""
     @Published private(set) var language = "ru"
+    @Published private(set) var partner = PartnerLanguage.current(UserDefaults.standard.string(forKey: "lab.partnerLanguage") ?? "de")
     @Published private(set) var levels = Array(repeating: 0.0, count: 40)
     @Published private(set) var elapsed = 0.0
     @Published private(set) var detail = ""
@@ -30,8 +31,8 @@ import SwiftUI
     @Published var autoSpeak: Bool = (UserDefaults.standard.object(forKey: "lab.autoSpeak") as? Bool) ?? true {
         didSet { UserDefaults.standard.set(autoSpeak, forKey: "lab.autoSpeak") }
     }
-    @Published var germanVoiceID: String = UserDefaults.standard.string(forKey: "lab.voice.de") ?? "" {
-        didSet { UserDefaults.standard.set(germanVoiceID, forKey: "lab.voice.de") }
+    @Published var selectedPartnerVoiceID = "" {
+        didSet { UserDefaults.standard.set(selectedPartnerVoiceID, forKey: "lab.voice.\(partner.rawValue)") }
     }
     @Published var russianVoiceID: String = UserDefaults.standard.string(forKey: "lab.voice.ru") ?? "" {
         didSet { UserDefaults.standard.set(russianVoiceID, forKey: "lab.voice.ru") }
@@ -57,6 +58,7 @@ import SwiftUI
 
     override init() {
         super.init()
+        selectedPartnerVoiceID = UserDefaults.standard.string(forKey: "lab.voice.\(partner.rawValue)") ?? ""
         speaker.delegate = self
         refreshKey()
         chatGPTAccount = (try? SessionStore.load())?.email ?? ""
@@ -93,8 +95,23 @@ import SwiftUI
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
+    // Language selection remains disabled during recording, translation and playback,
+    // exactly as in Interpreter Live's orbit picker.
+    func setPartner(_ choice: PartnerLanguage) {
+        guard phase == .idle && held == nil else { return }
+        guard choice != partner else { return }
+        partner = choice
+        selectedPartnerVoiceID = UserDefaults.standard.string(forKey: "lab.voice.\(choice.rawValue)") ?? ""
+        language = "ru"
+        source = ""
+        translation = ""
+        detail = ""
+        translationTarget = choice.rawValue
+        message = "Готово · \(choice.name) ↔ Русский"
+    }
+
     func begin(_ lang: String) {
-        guard canBegin && held == nil && ["ru", "de"].contains(lang) else { return }
+        guard canBegin && held == nil && (lang == "ru" || lang == partner.rawValue) else { return }
         haltPlayback()
         operation?.cancel()
         capture.cancel()
@@ -113,7 +130,7 @@ import SwiftUI
             guard let self else { return }
             do {
                 try await self.capture.start(
-                    locale: lang == "ru" ? "ru-RU" : "de-DE",
+                    locale: lang == "ru" ? "ru-RU" : partner.speechLocale,
                     onText: { [weak self] value in
                         guard let self, self.generation == token else { return }
                         self.source = value
@@ -200,11 +217,11 @@ import SwiftUI
         let from = language
         let selectedSource = authSource
         let model = selectedSource == "chatgpt" ? chatGPTModel : modelID
-        translationTarget = from == "ru" ? "de" : "ru"
+        translationTarget = from == "ru" ? partner.rawValue : "ru"
         translation = ""
         phase = .translating
         message = "OpenAI · перевожу готовую фразу"
-        detail = "\(from == "ru" ? "Русский → Deutsch" : "Deutsch → Русский") · \(model) · \(selectedSource == "chatgpt" ? "ChatGPT" : "API")"
+        detail = "\(from == "ru" ? "Русский → \(partner.name)" : "\(partner.name) → Русский") · \(model) · \(selectedSource == "chatgpt" ? "ChatGPT" : "API")"
         operation = Task { [weak self] in
             guard let self else { return }
             do {
@@ -221,7 +238,7 @@ import SwiftUI
                     }
                     bearer = key
                 }
-                let value = try await LabTranslator.translate(input, source: from, model: model, bearerToken: bearer)
+                let value = try await LabTranslator.translate(input, source: from, target: self.translationTarget, model: model, bearerToken: bearer)
                 guard self.generation == token && !Task.isCancelled else { return }
                 self.translation = value
                 self.phase = .idle
@@ -253,9 +270,15 @@ import SwiftUI
             return
         }
         let utterance = AVSpeechUtterance(string: translation)
-        let storedID = translationTarget == "de" ? germanVoiceID : russianVoiceID
+        let storedID = translationTarget == "ru" ? russianVoiceID :
+            UserDefaults.standard.string(forKey: "lab.voice.\(translationTarget)") ?? ""
         utterance.voice = AVSpeechSynthesisVoice(identifier: storedID)
-            ?? AVSpeechSynthesisVoice(language: translationTarget == "de" ? "de-DE" : "ru-RU")
+            ?? AVSpeechSynthesisVoice(language: PartnerLanguage.voiceLocale(for: translationTarget))
+        guard utterance.voice != nil else {
+            phase = .idle
+            message = "Голос Apple для этого языка недоступен. Установи его в настройках iPhone."
+            return
+        }
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         utterance.pitchMultiplier = 1.0
         currentUtterance = utterance
