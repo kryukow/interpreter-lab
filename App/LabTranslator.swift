@@ -2,24 +2,28 @@ import Foundation
 
 enum LabTranslator {
     enum TranslationError: LocalizedError {
-        case emptyInput, emptyOutput, http(Int, String)
+        case emptyInput
+        case missingModel
+        case http(status: Int, detail: String, requestID: String?)
+
         var errorDescription: String? {
             switch self {
             case .emptyInput: return "Сначала произнеси или напиши фразу."
-            case .emptyOutput: return "Модель вернула пустой перевод. Попробуй ещё раз."
-            case .http(let code, let detail):
-                if code == 401 { return "Авторизация истекла или отклонена. Обнови вход ChatGPT либо проверь API-ключ." }
-                if code == 429 { return "Достигнут лимит запросов или баланс API исчерпан." }
-                return "Ошибка OpenAI HTTP \(code): \(detail)"
+            case .missingModel: return "Выбери модель перевода в настройках."
+            case .http(let status, let detail, let requestID):
+                let suffix = requestID.map { " · Запрос: " + $0 } ?? ""
+                return "OpenAI HTTP \(status): \(detail)\(suffix)"
             }
         }
     }
 
-    // This makes one complete request after recognition has finished.
-    static func translate(_ text: String, source: String, model: String, bearerToken: String) async throws -> String {
+    // Sign in with ChatGPT requires store=false, stream=true, and array input.
+    // For consistent comparison paid API uses the same SSE protocol.
+    static func translate(_ text: String, source: String, model: String,
+                          bearerToken: String) async throws -> String {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { throw TranslationError.emptyInput }
-        guard !model.isEmpty else { throw TranslationError.http(400, "Выбери модель перевода в настройках.") }
+        guard !model.isEmpty else { throw TranslationError.missingModel }
         let bounded = String(input.prefix(6000))
         let sourceName = source == "ru" ? "Russian" : "German"
         let targetName = source == "ru" ? "German" : "Russian"
@@ -32,37 +36,62 @@ enum LabTranslator {
         Output only the final translation, with no prefatory text and no quotation marks.
         """
         let payload: [String: Any] = [
-            "model": model, "store": false, "instructions": instructions, "input": bounded
+            "model": model,
+            "store": false,
+            "stream": true,
+            "instructions": instructions,
+            "input": [["role": "user", "content": bounded]]
         ]
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/responses")!)
         request.httpMethod = "POST"
-        request.timeoutInterval = 45
+        request.timeoutInterval = 60
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-        let (data, reply) = try await URLSession.shared.data(for: request)
+
+        let (bytes, reply) = try await URLSession.shared.bytes(for: request)
         try Task.checkCancellation()
-        let code = (reply as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200 else {
-            var detail = "Проверь подключение и настройки модели."
-            if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let err = obj["error"] as? [String: Any],
-               let msg = err["message"] as? String {
-                detail = String(msg.prefix(240))
+        let http = reply as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
+        let requestID = http?.value(forHTTPHeaderField: "x-request-id")
+
+        guard status == 200 else {
+            // Admission failures can be {"detail": "..."} instead of {"error": {...}}.
+            // Preserve the diagnostic code and request ID without exposing credentials.
+            var raw = ""
+            for try await line in bytes.lines {
+                try Task.checkCancellation()
+                if raw.utf8.count >= 8192 { break }
+                raw += String(line.prefix(8192)) + "\n"
             }
-            throw TranslationError.http(code, detail)
-        }
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let output = object["output"] as? [[String: Any]] else { throw TranslationError.emptyOutput }
-        var parts: [String] = []
-        for item in output where item["type"] as? String == "message" {
-            for content in (item["content"] as? [[String: Any]] ?? [])
-            where content["type"] as? String == "output_text" {
-                if let value = content["text"] as? String { parts.append(value) }
+            var detail = "Проверь параметры запроса и разрешения выбранной модели."
+            if let json = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any] {
+                if let error = json["error"] as? [String: Any] {
+                    detail = LabResponseStream.errorText(error, fallback: detail)
+                } else {
+                    detail = LabResponseStream.errorText(json, fallback: detail)
+                }
+            } else if !raw.isEmpty {
+                detail = String(raw.prefix(300))
             }
+            throw TranslationError.http(status: status, detail: detail, requestID: requestID)
         }
-        let result = parts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !result.isEmpty else { throw TranslationError.emptyOutput }
-        return result
+
+        var stream = LabResponseStream()
+        for try await line in bytes.lines {
+            try Task.checkCancellation()
+            guard line.hasPrefix("data:") else { continue }
+            let value = line.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
+            if value == "[DONE]" { continue }
+            guard let data = value.data(using: .utf8),
+                  let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+            try stream.ingest(event)
+            if stream.completed { break }
+        }
+        try Task.checkCancellation()
+        return try stream.finish()
     }
 }
