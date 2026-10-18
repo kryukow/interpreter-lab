@@ -39,6 +39,19 @@ jobs:
           assert "LabTranslator.translate" in code
           print("Lab is an independent speech-to-text / text-translation / TTS app")
           PY
+      - name: Validate subscription request contract and SSE parser
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          code = Path("App/LabTranslator.swift").read_text()
+          assert '"stream": true' in code and '"store": false' in code
+          assert '"input": [["role": "user", "content": bounded]]' in code
+          assert "URLSession.shared.bytes(for: request)" in code
+          assert "LabResponseStream" in code
+          print("Sign in with ChatGPT Responses contract checked")
+          PY
+          swiftc App/LabResponseStream.swift Tests/StreamTests.swift -o "$RUNNER_TEMP/lab-stream-tests"
+          "$RUNNER_TEMP/lab-stream-tests"
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Render dedicated LAB app icon
@@ -66,18 +79,18 @@ jobs:
           app = Path(os.environ["RUNNER_TEMP"]) / "LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app"
           info = plistlib.loads((app / "Info.plist").read_bytes())
           assert info["CFBundleIdentifier"] == "org.interpreter.lab"
-          assert info["CFBundleShortVersionString"] == "0.2.0"
+          assert info["CFBundleShortVersionString"] == "0.2.1"
           assert info["NSMicrophoneUsageDescription"]
           assert info["NSSpeechRecognitionUsageDescription"]
           print("Verified Interpreter Lab iOS .app bundle")
           PY
           mkdir -p "$RUNNER_TEMP/lab-package/Payload"
           cp -R "$RUNNER_TEMP/LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app" "$RUNNER_TEMP/lab-package/Payload/"
-          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.2.0-Unsigned.ipa" Payload)
-          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.2.0-Unsigned.ipa"
+          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.2.1-Unsigned.ipa" Payload)
+          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.2.1-Unsigned.ipa"
       - uses: actions/upload-artifact@v4
         with:
-          name: Interpreter-Lab-0.2.0-Unsigned-iPhone
-          path: ${{ runner.temp }}/Interpreter-Lab-0.2.0-Unsigned.ipa
+          name: Interpreter-Lab-0.2.1-Unsigned-iPhone
+          path: ${{ runner.temp }}/Interpreter-Lab-0.2.1-Unsigned.ipa
           if-no-files-found: error
           retention-days: 7
