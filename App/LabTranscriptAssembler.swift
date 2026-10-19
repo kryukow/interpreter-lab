@@ -54,7 +54,7 @@ struct LabTranscriptAssembler {
         // until the revised one is substantial again.
         let beginsSimilarly = words(old).prefix(3) == words(next).prefix(3)
         return old.count > next.count + 15 && next.count >= 6
-            && (old.hasPrefix(next) || (beginsSimilarly && next.count * 1.4 < old.count))
+            && (old.hasPrefix(next) || (beginsSimilarly && Double(next.count) * 1.4 < Double(old.count)))
     }
 
     private func looksLikeNewSegment(previous: String, incoming: String) -> Bool {
@@ -66,7 +66,7 @@ struct LabTranscriptAssembler {
         guard priorWords.count >= 7 else { return false }
         // A major shortening with a different opening is evidence of a fresh
         // partial chunk. Not merely punctuation or a couple corrected words.
-        let strongShrink = next.count * 1.55 + 14 < prior.count
+        let strongShrink = Double(next.count) * 1.55 + 14 < Double(prior.count)
         let oldOpening = priorWords.prefix(3).joined(separator: " ")
         let newOpening = nextWords.prefix(3).joined(separator: " ")
         let sameBeginning = oldOpening == newOpening || prior.hasPrefix(next)
