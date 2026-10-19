@@ -23,7 +23,7 @@ final class GraphiteRendererTests: XCTestCase {
                 XCTAssertLessThan(halo.lineWidth, 1)
                 let ribbon = try XCTUnwrap(artwork.sublayers?.last)
                 XCTAssertLessThanOrEqual(ribbon.bounds.width, 188)
-                let strokes = try XCTUnwrap(ribbon.sublayers?.compactMap { $0 as? CAShapeLayer })
+                let strokes = try XCTUnwrap(ribbon.sublayers?.compactMap { ($0 as? CAShapeLayer) ?? ($0.mask as? CAShapeLayer) })
                 XCTAssertEqual(strokes.count, 5)
                 for stroke in strokes { XCTAssertNotNil(stroke.path) }
                 XCTAssertNotNil(strokes.last?.animation(forKey: "contourLight"))

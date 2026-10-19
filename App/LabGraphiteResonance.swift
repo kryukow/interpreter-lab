@@ -40,6 +40,7 @@ final class GraphiteResonanceSurface: UIView {
     private let aura = CAShapeLayer()
     private let underside = CAShapeLayer()
     private let mainStroke = CAShapeLayer()
+    private let metal = CAGradientLayer()
     private let glint = CAShapeLayer()
     private let lightTail = CAShapeLayer()
     private var contourLength: CGFloat = 1
@@ -85,7 +86,19 @@ final class GraphiteResonanceSurface: UIView {
         setupStroke(glint, color: .white, width: 2.1)
         glint.opacity = 0.25
         glint.lineDashPattern = [22, 360]
-        [aura, underside, mainStroke, lightTail, glint].forEach(ribbon.addSublayer)
+        [aura, underside].forEach(ribbon.addSublayer)
+        metal.colors = [UIColor(white: 0.42, alpha: 1).cgColor,
+                        UIColor(white: 0.91, alpha: 1).cgColor,
+                        UIColor(white: 0.57, alpha: 1).cgColor,
+                        UIColor(white: 0.98, alpha: 1).cgColor,
+                        UIColor(white: 0.46, alpha: 1).cgColor]
+        metal.locations = [0, 0.28, 0.52, 0.74, 1]
+        metal.startPoint = CGPoint(x: 0, y: 0)
+        metal.endPoint = CGPoint(x: 1, y: 1)
+        mainStroke.strokeColor = UIColor.white.cgColor
+        metal.mask = mainStroke
+        ribbon.addSublayer(metal)
+        [lightTail, glint].forEach(ribbon.addSublayer)
 
     }
 
@@ -144,6 +157,7 @@ final class GraphiteResonanceSurface: UIView {
             x: (size.width - width) * 0.5,
             y: (size.height - height) * 0.5 - 1,
             width: width, height: height)
+        metal.frame = ribbon.bounds
         let path = makeInfinityPath(in: ribbon.bounds)
         for item in [aura, underside, mainStroke, lightTail, glint] {
             item.frame = ribbon.bounds
@@ -232,6 +246,8 @@ final class GraphiteResonanceSurface: UIView {
         motionEnabled = enabled
         configuredPhase = currentPhase
         let style = currentPhase.style
+        let headPosition = (glint.presentation() as? CAShapeLayer)?.lineDashPhase ?? glint.lineDashPhase
+        let tailPosition = (lightTail.presentation() as? CAShapeLayer)?.lineDashPhase ?? lightTail.lineDashPhase
         for item in [cloudLeft, cloudRight, cloudBottom, halo, glint, lightTail] {
             item.removeAllAnimations()
         }
@@ -241,10 +257,11 @@ final class GraphiteResonanceSurface: UIView {
                                     NSNumber(value: Double(contourLength) * (1 - style.tail))]
         guard enabled else { return }
         startAmbientMovement()
-        for item in [glint, lightTail] {
+        for (item, position) in [(glint, headPosition), (lightTail, tailPosition)] {
+            item.lineDashPhase = position
             let light = CABasicAnimation(keyPath: "lineDashPhase")
-            light.fromValue = 0
-            light.toValue = style.lap > 0 ? -contourLength : contourLength
+            light.fromValue = position
+            light.toValue = position + (style.lap > 0 ? -contourLength : contourLength)
             light.duration = abs(style.lap)
             light.repeatCount = .infinity
             item.add(light, forKey: "contourLight")

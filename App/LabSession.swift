@@ -138,7 +138,26 @@ import SwiftUI
         translation = ""
         detail = ""
         levels = Array(repeating: 0, count: 40)
-        visualBands =…267 tokens truncated…          // 20 Hz is enough for expressive light while Core Animation stays smooth.
+        visualBands = .silence
+        lastMicrophoneVisualUpdate = 0
+        pendingMicrophoneBands = .silence
+        clearCachedSpeech()
+        elapsed = 0
+        phase = .arming
+        message = "Готовлю микрофон · пока не говори"
+        operation = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.capture.start(
+                    locale: lang == "ru" ? "ru-RU" : partner.speechLocale,
+                    onText: { [weak self] value in
+                        guard let self, self.generation == token else { return }
+                        self.source = value
+                    },
+                    onLevel: { [weak self] value in
+                        guard let self, self.generation == token && self.phase == .recording else { return }
+                        // Avoid re-rendering the entire SwiftUI screen at mic tap rate.
+                        // 20 Hz is enough for expressive light while Core Animation stays smooth.
                         let now = ProcessInfo.processInfo.systemUptime
                         guard now - self.lastMicrophoneVisualUpdate >= 0.05 else { return }
                         self.lastMicrophoneVisualUpdate = now
@@ -313,10 +332,19 @@ import SwiftUI
                     let analysis = Task.detached(priority: .userInitiated) {
                         try LabPlaybackSpectrum(url: url)
                     }
-                    spectrum = try await withTaskCancellationHandler {
-                        try await analysis.value
-                    } onCancel: {
-                        analysis.cancel()
+                    do {
+                        spectrum = try await withTaskCancellationHandler {
+                            try await analysis.value
+                        } onCancel: {
+                            analysis.cancel()
+                        }
+                    } catch {
+                        try? FileManager.default.removeItem(at: url)
+                        throw error
+                    }
+                    guard self.generation == token && !Task.isCancelled else {
+                        try? FileManager.default.removeItem(at: url)
+                        return
                     }
                     self.clearCachedSpeech()
                     self.cachedSpeech = (text, voice.identifier, url, spectrum)

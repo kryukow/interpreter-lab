@@ -1,6 +1,6 @@
 import Foundation
 
-enum LabResonancePhase: CaseIterable {
+enum LabResonancePhase: CaseIterable, Equatable, Sendable {
     case idle, input, processing, output
 
     var style: LabResonanceStyle {
