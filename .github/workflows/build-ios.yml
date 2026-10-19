@@ -154,6 +154,11 @@ jobs:
           PY
       - name: Generate iOS project
         run: xcodegen generate
+      - name: Prepare simulator while building
+        run: |
+          LAB_SIM_DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
+          echo "LAB_SIM_DEVICE=$LAB_SIM_DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$LAB_SIM_DEVICE" || true
       - name: Build iOS Simulator
         run: |
           xcodebuild -project InterpreterLab.xcodeproj -scheme InterpreterLab \
@@ -193,7 +198,8 @@ jobs:
         # iOS simulator/test runner; test assertions themselves finish in seconds.
         timeout-minutes: 20
         run: |
-          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
+          DEVICE="$LAB_SIM_DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
           xcodebuild -project InterpreterLab.xcodeproj -scheme InterpreterLab \
             -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" \
             -derivedDataPath "$RUNNER_TEMP/LabSimulator" \

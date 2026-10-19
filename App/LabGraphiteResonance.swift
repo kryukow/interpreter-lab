@@ -89,7 +89,9 @@ final class GraphiteResonanceSurface: UIView {
             displayLink = nil
             lastTimestamp = 0
         }
-        setNeedsDisplay()
+        // Audio updates may arrive between display ticks. The link exclusively
+        // owns invalidation while moving, preserving the 30 fps rendering cap.
+        if displayLink == nil { setNeedsDisplay() }
     }
     func update(phase: LabResonancePhase, bands: LabAudioBands, orbitActive: Bool, reduceMotion: Bool) {
         self.phase = phase
