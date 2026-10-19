@@ -285,6 +285,8 @@ struct LabSettings: View {
     @State private var key = ""
     @State private var elevenKeyInput = ""
     @State private var elevenBusy = false
+    @State private var elevenVoiceStatus = ""
+    @State private var elevenVoiceError = false
     @State private var deleteElevenKey = false
     @State private var notice = ""
     @State private var deleteKey = false
@@ -413,22 +415,43 @@ struct LabSettings: View {
                             do {
                                 try model.saveElevenKey(elevenKeyInput)
                                 elevenKeyInput = ""
-                                notice = "Ключ ElevenLabs сохранён. Теперь загрузи голоса."
+                                elevenVoiceStatus = "Ключ сохранён. Теперь нажми «Загрузить доступные голоса»."
+                                elevenVoiceError = false
+                                notice = ""
                             } catch { notice = error.localizedDescription }
                         }
                         .disabled(elevenBusy || elevenKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         if model.elevenKeySaved {
                             Button("Загрузить доступные голоса") {
                                 elevenBusy = true
+                                elevenVoiceStatus = "Обращаюсь к ElevenLabs…"
+                                elevenVoiceError = false
                                 notice = ""
                                 Task {
                                     defer { elevenBusy = false }
                                     do {
                                         try await model.loadElevenVoices()
-                                        notice = "Загружено голосов: \(model.elevenVoices.count)"
-                                    } catch { notice = error.localizedDescription }
+                                        let count = model.elevenVoices.count
+                                        if count == 0 {
+                                            elevenVoiceError = true
+                                            elevenVoiceStatus = "ElevenLabs ответил, но доступных голосов нет. Проверь разрешение Voices → Read и наличие голосов в личном кабинете."
+                                        } else {
+                                            elevenVoiceStatus = "ElevenLabs подключён ✓ Загружено голосов: \(count). Ниже выбери русский и \(model.partner.name) голоса."
+                                        }
+                                    } catch {
+                                        elevenVoiceError = true
+                                        elevenVoiceStatus = "Не удалось загрузить голоса: \(error.localizedDescription)"
+                                    }
                                 }
                             }.disabled(elevenBusy)
+                            if elevenBusy {
+                                ProgressView("Загружаю голоса ElevenLabs…")
+                            }
+                            if !elevenVoiceStatus.isEmpty {
+                                Text(elevenVoiceStatus)
+                                    .font(.footnote)
+                                    .foregroundStyle(elevenVoiceError ? Color.orange : Color.secondary)
+                            }
                             if !model.elevenVoices.isEmpty {
                                 Picker("Немецкий / \(model.partner.name)", selection: $model.elevenPartnerVoice) {
                                     Text("Выбери голос").tag("")
@@ -457,7 +480,7 @@ struct LabSettings: View {
                             Text("Flash v2.5 · быстрее и экономичнее").tag(LabElevenModels.fast)
                             Text("Multilingual v2 · естественнее").tag(LabElevenModels.natural)
                         }
-                        Text("Голосов нужно выбрать два: для русского и для партнёрского языка. Перед первым платным озвучиванием проверь лимит кредитов в ElevenLabs. По умолчанию у Lab остаётся Apple TTS.")
+                        Text("API-ключу нужны разрешения Voices → Read и Text to Speech. Пока голоса не загружены и не выбраны, ElevenLabs не сможет озвучить перевод. Перед генерацией проверь лимит кредитов.")
                             .font(.footnote)
                         Link("Открыть ElevenLabs", destination: URL(string: "https://elevenlabs.io/app")!)
                     }
@@ -485,7 +508,12 @@ struct LabSettings: View {
             }
             .confirmationDialog("Удалить отдельный API-ключ ElevenLabs?", isPresented: $deleteElevenKey) {
                 Button("Удалить ключ ElevenLabs", role: .destructive) {
-                    do { try model.deleteElevenKey(); notice = "Ключ ElevenLabs удалён, снова используется Apple TTS." }
+                    do {
+                        try model.deleteElevenKey()
+                        elevenVoiceStatus = ""
+                        elevenVoiceError = false
+                        notice = "Ключ ElevenLabs удалён, снова используется Apple TTS."
+                    }
                     catch { notice = error.localizedDescription }
                 }
             }
