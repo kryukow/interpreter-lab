@@ -23,9 +23,9 @@ struct LabSettingsCard<Content: View>: View {
                     Image(systemName: symbol).font(.system(size: 18, weight: .light))
                         .foregroundStyle(.white.opacity(0.7)).frame(width: 25)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(title).font(.system(size: 16, weight: .medium)).foregroundStyle(.white.opacity(0.9))
+                        Text(title).font(.system(size: 15, weight: .medium)).foregroundStyle(.white.opacity(0.9))
                         Text(summary).font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.43)).lineLimit(2)
+                            .foregroundStyle(Color(red: 0.57, green: 0.60, blue: 0.65)).lineLimit(3)
                     }
                     Spacer(minLength: 5)
                     Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
@@ -40,10 +40,10 @@ struct LabSettingsCard<Content: View>: View {
             }
         }
         .background {
-            RoundedRectangle(cornerRadius: 23).fill(
-                LinearGradient(colors: [.white.opacity(0.052), .white.opacity(0.019)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            RoundedRectangle(cornerRadius: 20).fill(
+                LinearGradient(colors: [Color(red: 0.10, green: 0.114, blue: 0.133), Color(red: 0.063, green: 0.071, blue: 0.086)], startPoint: .topLeading, endPoint: .bottomTrailing))
         }
-        .overlay { RoundedRectangle(cornerRadius: 23).strokeBorder(.white.opacity(0.075), lineWidth: 0.7) }
-        .clipShape(RoundedRectangle(cornerRadius: 23))
+        .overlay { RoundedRectangle(cornerRadius: 20).strokeBorder(Color(red: 0.19, green: 0.21, blue: 0.235), lineWidth: 0.7) }
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 }

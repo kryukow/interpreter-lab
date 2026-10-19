@@ -24,11 +24,11 @@ struct LabVoiceLibrary: View {
                     Text("Сначала послушай.").font(.system(size: 28, weight: .light))
                     Text("Готовые демо ElevenLabs. Кнопка воспроизведения не меняет выбранный голос и не создаёт платную генерацию.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Picker("Язык голоса", selection: $language) {
-                        ForEach(LabElevenCatalogAPI.languages.indices, id: \.self) { index in
-                            Text(LabElevenCatalogAPI.languages[index].name).tag(LabElevenCatalogAPI.languages[index].code)
-                        }
-                    }.pickerStyle(.menu).disabled(importing != nil)
+                    LabGraphiteSelectionField(title: "Язык голоса", selection: $language,
+                        choices: LabElevenCatalogAPI.languages.map {
+                            LabGraphiteChoice(id: $0.code, title: $0.name, detail: $0.code.uppercased(), symbol: "globe")
+                        }, note: "Язык фильтрует библиотеку. Готовая проба может звучать на другом языке.")
+                        .disabled(importing != nil)
                     HStack {
                         TextField("Имя, акцент или описание", text: $search).textInputAutocapitalization(.never)
                             .submitLabel(.search).onSubmit { refresh() }

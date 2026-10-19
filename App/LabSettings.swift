@@ -31,10 +31,10 @@ struct LabSettings: View {
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 12)
 
                 LabSettingsCard(title: "Перевод", symbol: "arrow.left.arrow.right", summary: translationSummary, initiallyExpanded: true) {
-                    Picker("Использовать", selection: $model.authSource) {
-                        Text("Подписка ChatGPT · основной").tag("chatgpt")
-                        Text("Платный API · дополнительно").tag("api")
-                    }
+                    LabGraphiteSelectionField(title: "Способ перевода", selection: $model.authSource, choices: [
+                        LabGraphiteChoice(id: "chatgpt", title: "Подписка ChatGPT", detail: "Вход через ChatGPT · лимиты твоей подписки", symbol: "person.crop.circle"),
+                        LabGraphiteChoice(id: "api", title: "OpenAI API", detail: "Отдельный ключ · оплата API отдельно", symbol: "key.horizontal")
+                    ], note: "Перевод отправляет только распознанный текст.")
                     Text(model.authSource == "chatgpt"
                          ? "Перевод текста через Sign in with ChatGPT и лимиты подписки. Отдельный API-ключ не нужен."
                          : "Перевод текста через платный OpenAI API. Вход в ChatGPT для этого режима не требуется.")
@@ -67,12 +67,10 @@ struct LabSettings: View {
                                     catch { notice = error.localizedDescription }
                                 }
                             }.disabled(authenticating)
-                            Picker("Модель перевода", selection: $model.chatGPTModel) {
-                                Text("Выбери модель").tag("")
-                                ForEach(model.chatGPTModels) { item in
-                                    Text(item.name).tag(item.id)
-                                }
-                            }.disabled(authenticating)
+                            LabGraphiteSelectionField(title: "Модель перевода", selection: $model.chatGPTModel,
+                                choices: model.chatGPTModels.map { LabGraphiteChoice(id: $0.id, title: $0.name, detail: $0.id, symbol: "cpu") },
+                                note: "Модели доступны для подключённого аккаунта ChatGPT.")
+                                .disabled(authenticating)
                             Button("Выйти из ChatGPT", role: .destructive) {
                                 do { try model.disconnectChatGPT(); notice = "Вход ChatGPT удалён только в Lab." }
                                 catch { notice = error.localizedDescription }
@@ -102,18 +100,18 @@ struct LabSettings: View {
                             Button("Удалить ключ", role: .destructive) { deleteKey = true }
                         }
                         Link("Создать ключ OpenAI", destination: URL(string: "https://platform.openai.com/api-keys")!)
-                        Picker("Модель API", selection: $model.modelID) {
-                            Text("GPT-4.1 mini").tag("gpt-4.1-mini")
-                            Text("GPT-4.1").tag("gpt-4.1")
-                        }
+                        LabGraphiteSelectionField(title: "Модель API", selection: $model.modelID, choices: [
+                            LabGraphiteChoice(id: "gpt-4.1-mini", title: "GPT-4.1 mini", detail: "Компактная модель для перевода", symbol: "cpu"),
+                            LabGraphiteChoice(id: "gpt-4.1", title: "GPT-4.1", detail: "Полная модель", symbol: "cpu")
+                        ], note: "Запросы оплачиваются отдельно по тарифу OpenAI API.")
                     }
                 }
                 LabSettingsCard(title: "Голос", symbol: "waveform", summary: speechSummary) {
                     Toggle("Автоматически озвучивать перевод", isOn: $model.autoSpeak)
-                    Picker("Движок озвучивания", selection: $model.speechEngine) {
-                        Text("Apple TTS · без API-расходов").tag("apple")
-                        Text("ElevenLabs · облачный голос").tag("elevenlabs")
-                    }
+                    LabGraphiteSelectionField(title: "Движок озвучивания", selection: $model.speechEngine, choices: [
+                        LabGraphiteChoice(id: "apple", title: "Apple", detail: "Системные голоса iPhone · без API-расходов", symbol: "iphone"),
+                        LabGraphiteChoice(id: "elevenlabs", title: "ElevenLabs", detail: "Облачные голоса · отдельный платный API", symbol: "waveform")
+                    ], note: "Голос можно прослушать перед выбором. Демо ElevenLabs не создаёт платную генерацию.")
                     Text(model.speechEngine == "apple"
                          ? "Apple озвучивает бесплатно и остаётся резервным движком."
                          : "ElevenLabs — отдельный платный API. В ElevenLabs отправляется только готовый перевод. Повторное прослушивание сохранённого звука не создаёт нового запроса.")
@@ -204,10 +202,10 @@ struct LabSettings: View {
                              ? "После каждого перевода ElevenLabs будет автоматически генерировать платное аудио."
                              : "Автоматическая платная генерация отключена. Можно проверить голос вручную кнопкой «Озвучить» после перевода.")
                             .font(.footnote)
-                        Picker("Модель генерации", selection: $model.elevenModel) {
-                            Text("Flash v2.5 · быстрее и экономичнее").tag(LabElevenModels.fast)
-                            Text("Multilingual v2 · естественнее").tag(LabElevenModels.natural)
-                        }
+                        LabGraphiteSelectionField(title: "Модель генерации", selection: $model.elevenModel, choices: [
+                            LabGraphiteChoice(id: LabElevenModels.fast, title: "Flash v2.5", detail: "Быстрее и экономичнее", symbol: "bolt"),
+                            LabGraphiteChoice(id: LabElevenModels.natural, title: "Multilingual v2", detail: "Естественнее · многоязычная речь", symbol: "waveform")
+                        ], note: "Генерация расходует кредиты ElevenLabs. Прослушивание готового демо не расходует кредиты генерации.")
                         Text("API-ключу нужны разрешения Voices → Read и Text to Speech. Пока голоса не загружены и не выбраны, ElevenLabs не сможет озвучить перевод. Перед генерацией проверь лимит кредитов.")
                             .font(.footnote)
                         Link("Открыть ElevenLabs", destination: URL(string: "https://elevenlabs.io/app")!)
@@ -266,6 +264,7 @@ struct LabSettings: View {
             }
             .onDisappear { key = ""; elevenKeyInput = ""; preview.stop() }
             .onChange(of: scenePhase) { _, phase in if phase != .active { preview.stop() } }
+            .onChange(of: model.speechEngine) { _, _ in preview.stop() }
         }
         .tint(.white)
         .preferredColorScheme(.dark)
