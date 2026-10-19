@@ -21,6 +21,14 @@ final class GraphiteRendererTests: XCTestCase {
                 let halo = try XCTUnwrap(artwork.sublayers?.compactMap { $0 as? CAShapeLayer }.first)
                 XCTAssertNotNil(halo.path)
                 XCTAssertLessThan(halo.lineWidth, 1)
+                XCTAssertGreaterThan(halo.opacity, 0.10, "Concept 03 halo stays visible at idle")
+                XCTAssertNotNil(halo.animation(forKey: "breathingOval"),
+                                "The oval must actually breathe, not stay static")
+                let ovalTracers = try XCTUnwrap(artwork.sublayers?.compactMap { $0 as? CAShapeLayer })
+                XCTAssertGreaterThanOrEqual(ovalTracers.count, 2)
+                let haloTracer = try XCTUnwrap(ovalTracers.last)
+                XCTAssertNotNil(haloTracer.animation(forKey: "ovalLightOrbit"),
+                                "Light must travel around the elliptical halo")
                 let ribbon = try XCTUnwrap(artwork.sublayers?.last)
                 XCTAssertLessThanOrEqual(ribbon.bounds.width, 188)
                 let strokes = try XCTUnwrap(ribbon.sublayers?.compactMap { ($0 as? CAShapeLayer) ?? ($0.mask as? CAShapeLayer) })
