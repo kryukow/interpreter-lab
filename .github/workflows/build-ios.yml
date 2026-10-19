@@ -93,6 +93,11 @@ jobs:
           assert "animateLight(glint, lap: 4.0)" in resonance
           assert "cloudLeft.transform" in resonance
           assert "softRadialImage" in resonance
+          assert "graphiteDepth" in resonance
+          assert "haloTracer" in resonance
+          assert "breathingOval" in resonance
+          assert "ovalLightOrbit" in resonance
+          assert "glint.opacity = active ? Float(0.82 + 0.18 * highs) : 0" in resonance
           audio = Path("App/LabSpeechExporter.swift").read_text()
           assert "synth.write(utterance)" in audio
           assert "LabPlaybackSpectrum" in audio
@@ -132,19 +137,19 @@ jobs:
           app = Path(os.environ["RUNNER_TEMP"]) / "LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app"
           info = plistlib.loads((app / "Info.plist").read_bytes())
           assert info["CFBundleIdentifier"] == "org.interpreter.lab"
-          assert info["CFBundleShortVersionString"] == "0.4.2"
+          assert info["CFBundleShortVersionString"] == "0.4.3"
           assert info["NSMicrophoneUsageDescription"]
           assert info["NSSpeechRecognitionUsageDescription"]
           print("Verified Interpreter Lab iOS .app bundle")
           PY
           mkdir -p "$RUNNER_TEMP/lab-package/Payload"
           cp -R "$RUNNER_TEMP/LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app" "$RUNNER_TEMP/lab-package/Payload/"
-          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.4.2-Unsigned.ipa" Payload)
-          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.4.2-Unsigned.ipa"
+          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.4.3-Unsigned.ipa" Payload)
+          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.4.3-Unsigned.ipa"
       - uses: actions/upload-artifact@v4
         with:
-          name: Interpreter-Lab-0.4.2-Unsigned-iPhone
-          path: ${{ runner.temp }}/Interpreter-Lab-0.4.2-Unsigned.ipa
+          name: Interpreter-Lab-0.4.3-Unsigned-iPhone
+          path: ${{ runner.temp }}/Interpreter-Lab-0.4.3-Unsigned.ipa
           if-no-files-found: error
           retention-days: 7
       - name: Run renderer in iOS Simulator
