@@ -283,6 +283,9 @@ struct LabSettings: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("lab.keepAwake") private var keepAwake = true
     @State private var key = ""
+    @State private var elevenKeyInput = ""
+    @State private var elevenBusy = false
+    @State private var deleteElevenKey = false
     @State private var notice = ""
     @State private var deleteKey = false
     @StateObject private var login = Login()
@@ -371,6 +374,15 @@ struct LabSettings: View {
                 }
                 Section("Озвучивание") {
                     Toggle("Автоматически озвучивать перевод", isOn: $model.autoSpeak)
+                    Picker("Движок озвучивания", selection: $model.speechEngine) {
+                        Text("Apple TTS · без API-расходов").tag("apple")
+                        Text("ElevenLabs · облачный голос").tag("elevenlabs")
+                    }
+                    Text(model.speechEngine == "apple"
+                         ? "Apple озвучивает бесплатно и остаётся резервным движком."
+                         : "ElevenLabs — отдельный платный API. В ElevenLabs отправляется только готовый перевод. Повторное прослушивание сохранённого звука не создаёт нового запроса.")
+                        .font(.footnote)
+                    if model.speechEngine == "apple" {
                     Picker("Голос \(model.partner.name)", selection: $model.selectedPartnerVoiceID) {
                         Text("Системный по умолчанию").tag("")
                         ForEach(model.voices(for: model.partner.rawValue), id: \.identifier) { voice in
@@ -385,6 +397,64 @@ struct LabSettings: View {
                     }
                     Text("Голоса Apple доступны без оплаты API. Дополнительные системные голоса можно загрузить в настройках iPhone.")
                         .font(.footnote)
+                    }
+                }
+                if model.speechEngine == "elevenlabs" {
+                    Section("ElevenLabs · настройки") {
+                        Text(model.elevenKeySaved
+                             ? "Ключ ElevenLabs сохранён отдельно в Keychain этого iPhone"
+                             : "Сначала создай ключ в личном кабинете ElevenLabs, затем вставь его сюда.")
+                            .font(.footnote)
+                        SecureField("ElevenLabs API-ключ", text: $elevenKeyInput)
+                            .textContentType(.password)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Button("Сохранить ключ ElevenLabs") {
+                            do {
+                                try model.saveElevenKey(elevenKeyInput)
+                                elevenKeyInput = ""
+                                notice = "Ключ ElevenLabs сохранён. Теперь загрузи голоса."
+                            } catch { notice = error.localizedDescription }
+                        }
+                        .disabled(elevenBusy || elevenKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if model.elevenKeySaved {
+                            Button("Загрузить доступные голоса") {
+                                elevenBusy = true
+                                notice = ""
+                                Task {
+                                    defer { elevenBusy = false }
+                                    do {
+                                        try await model.loadElevenVoices()
+                                        notice = "Загружено голосов: \(model.elevenVoices.count)"
+                                    } catch { notice = error.localizedDescription }
+                                }
+                            }.disabled(elevenBusy)
+                            if !model.elevenVoices.isEmpty {
+                                Picker("Немецкий / \(model.partner.name)", selection: $model.elevenPartnerVoice) {
+                                    Text("Выбери голос").tag("")
+                                    ForEach(model.elevenVoices) { voice in
+                                        Text(voice.name).tag(voice.voiceID)
+                                    }
+                                }
+                                Picker("Русский голос ElevenLabs", selection: $model.elevenRussianVoice) {
+                                    Text("Выбери голос").tag("")
+                                    ForEach(model.elevenVoices) { voice in
+                                        Text(voice.name).tag(voice.voiceID)
+                                    }
+                                }
+                            }
+                            Button("Удалить ключ ElevenLabs", role: .destructive) {
+                                deleteElevenKey = true
+                            }.disabled(elevenBusy)
+                        }
+                        Picker("Модель генерации", selection: $model.elevenModel) {
+                            Text("Flash v2.5 · быстрее и экономичнее").tag(LabElevenModels.fast)
+                            Text("Multilingual v2 · естественнее").tag(LabElevenModels.natural)
+                        }
+                        Text("Голосов нужно выбрать два: для русского и для партнёрского языка. Перед первым платным озвучиванием проверь лимит кредитов в ElevenLabs. По умолчанию у Lab остаётся Apple TTS.")
+                            .font(.footnote)
+                        Link("Открыть ElevenLabs", destination: URL(string: "https://elevenlabs.io/app")!)
+                    }
                 }
                 Section("Экран") {
                     Toggle("Не гасить экран", isOn: $keepAwake)
@@ -397,12 +467,19 @@ struct LabSettings: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Готово") { key = ""; dismiss() }.disabled(authenticating)
+                    Button("Готово") { key = ""; elevenKeyInput = ""; dismiss() }
+                        .disabled(authenticating || elevenBusy)
                 }
             }
             .confirmationDialog("Удалить API-ключ из этого приложения?", isPresented: $deleteKey) {
                 Button("Удалить", role: .destructive) {
                     do { try model.deleteKey(); notice = "Ключ удалён" }
+                    catch { notice = error.localizedDescription }
+                }
+            }
+            .confirmationDialog("Удалить отдельный API-ключ ElevenLabs?", isPresented: $deleteElevenKey) {
+                Button("Удалить ключ ElevenLabs", role: .destructive) {
+                    do { try model.deleteElevenKey(); notice = "Ключ ElevenLabs удалён, снова используется Apple TTS." }
                     catch { notice = error.localizedDescription }
                 }
             }
@@ -420,7 +497,7 @@ struct LabSettings: View {
                 do { try await model.loadChatGPTModels() }
                 catch { notice = error.localizedDescription }
             }
-            .onDisappear { key = "" }
+            .onDisappear { key = ""; elevenKeyInput = "" }
         }
         .tint(.white)
     }
