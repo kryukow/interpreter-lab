@@ -35,6 +35,8 @@ struct LabGraphiteResonance: UIViewRepresentable {
 /// - Audio-driven changes touch only opacity/transform/stroke width at <=20 Hz.
 final class GraphiteResonanceSurface: UIView {
     private let artwork = CALayer()
+    // Graphite depth fades smoothly from center to black at the edges.
+    private let graphiteDepth = CALayer()
     private let leftDrift = CALayer()
     private let rightDrift = CALayer()
     private let bottomDrift = CALayer()
@@ -46,6 +48,8 @@ final class GraphiteResonanceSurface: UIView {
     private let bloom = CALayer()
 
     private let halo = CAShapeLayer()
+    private let haloTracer = CAShapeLayer()
+    private var haloLength: CGFloat = 1
     private let ribbon = CALayer()
     private let aura = CAShapeLayer()
     private let underside = CAShapeLayer()
@@ -75,6 +79,12 @@ final class GraphiteResonanceSurface: UIView {
 
         artwork.masksToBounds = false
         layer.addSublayer(artwork)
+        graphiteDepth.contents = Self.softRadialImage(
+            color: UIColor(red: 0.42, green: 0.45, blue: 0.51, alpha: 1))
+        graphiteDepth.contentsGravity = .resize
+        graphiteDepth.contentsScale = 1
+        graphiteDepth.opacity = 0.38
+        artwork.addSublayer(graphiteDepth)
         let cloudConfigurations: [(holder: CALayer, light: CALayer, color: UIColor)] = [
             (leftDrift, cloudLeft, UIColor(red: 0.4118, green: 0.4431, blue: 0.5059, alpha: 1)), // #697181
             (rightDrift, cloudRight, UIColor(red: 0.8275, green: 0.8471, blue: 0.8902, alpha: 1)), // #D3D8E3
@@ -101,8 +111,13 @@ final class GraphiteResonanceSurface: UIView {
 
         setupStroke(halo, color: UIColor(red: 0.7843, green: 0.7961, blue: 0.8431, alpha: 1),
                     width: 0.75)
-        halo.opacity = 0
+        // Unlike 0.4.2, the oval must remain visible and gently breathe in idle.
+        halo.opacity = 0.19
         artwork.addSublayer(halo)
+        setupStroke(haloTracer, color: UIColor(white: 0.96, alpha: 1), width: 1.35)
+        haloTracer.opacity = 0.42
+        haloTracer.lineCap = .round
+        artwork.addSublayer(haloTracer)
 
         ribbon.masksToBounds = false
         artwork.addSublayer(ribbon)
@@ -115,9 +130,15 @@ final class GraphiteResonanceSurface: UIView {
         aura.opacity = 0.13
         setupStroke(underside, color: UIColor(white: 0.18, alpha: 1), width: 9)
         setupStroke(mainStroke, color: .white, width: 6.7)
-        setupStroke(lightTail, color: UIColor(white: 1, alpha: 1), width: 4.0)
-        setupStroke(glint, color: .white, width: 1.7)
-        glint.opacity = 0.42
+        // Moving contour light: a luminous leading bar and broad diffused tail.
+        // At a compact glyph size 1.7pt was barely visible on its metal surface.
+        setupStroke(lightTail, color: UIColor(white: 0.98, alpha: 1), width: 8.8)
+        setupStroke(glint, color: .white, width: 4.2)
+        glint.opacity = 0.98
+        glint.shadowColor = UIColor.white.cgColor
+        glint.shadowOpacity = 0.58
+        glint.shadowRadius = 5
+        glint.shadowOffset = .zero
         [aura, underside].forEach(ribbon.addSublayer)
 
         // Silver/graphite metal from the approved CSS gradient, not flat white.
@@ -187,6 +208,8 @@ final class GraphiteResonanceSurface: UIView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         artwork.frame = bounds
+        graphiteDepth.frame = CGRect(x: size.width * 0.035, y: size.height * 0.025,
+                                     width: size.width * 0.93, height: size.height * 0.93)
         // Percentages are DIRECTLY from CONCEPT 03's Graphite stage:
         // clouds: a[-14%,4%,62%,73%], b[49%,2%,69%,77%],
         // c[18%,52%,67%,61%], d[27%,23%,45%,48%].
@@ -204,10 +227,14 @@ final class GraphiteResonanceSurface: UIView {
 
         bloom.frame = CGRect(x: size.width * 0.16, y: size.height * 0.16,
                              width: size.width * 0.68, height: size.height * 0.65)
-        halo.frame = bounds
-        halo.path = UIBezierPath(ovalIn: CGRect(
+        let oval = UIBezierPath(ovalIn: CGRect(
             x: size.width * 0.175, y: size.height * 0.21,
             width: size.width * 0.65, height: size.height * 0.48)).cgPath
+        halo.frame = bounds
+        halo.path = oval
+        haloTracer.frame = bounds
+        haloTracer.path = oval
+        haloLength = length(of: oval)
 
         let width = min(ribbonWidth, size.width * 0.60)
         let height = width * ribbonHeight / ribbonWidth
@@ -304,7 +331,7 @@ final class GraphiteResonanceSurface: UIView {
         configuredPhase = currentPhase
 
         [leftDrift, rightDrift, bottomDrift, centerDrift].forEach { $0.removeAllAnimations() }
-        [glint, lightTail].forEach { $0.removeAllAnimations() }
+        [halo, haloTracer, glint, lightTail].forEach { $0.removeAllAnimations() }
 
         guard enabled else { return }
         // Slow drifts directly follow the CSS 12/14/17/9-second ambient field.
@@ -313,13 +340,40 @@ final class GraphiteResonanceSurface: UIView {
         animateDrift(bottomDrift, dx: 11, dy: -13, seconds: 17)
         animateDrift(centerDrift, dx: -8, dy: 9, seconds: 9)
 
+        // The large, fine oval is alive even when waiting: very slow
+        // scaling in sync with a quiet orbiting silver shimmer. No center
+        // bar expanding independently of the ellipse.
+        let ovalBreath = CABasicAnimation(keyPath: "transform.scale")
+        ovalBreath.fromValue = 0.985
+        ovalBreath.toValue = 1.035
+        ovalBreath.duration = currentPhase == .input ? 2.1 : 3.4
+        ovalBreath.autoreverses = true
+        ovalBreath.repeatCount = .infinity
+        ovalBreath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        for ovalLayer in [halo, haloTracer] {
+            ovalLayer.add(ovalBreath.copy() as! CAAnimation, forKey: "breathingOval")
+        }
+
+        haloTracer.lineDashPattern = [
+            NSNumber(value: Double(haloLength * 0.075)),
+            NSNumber(value: Double(haloLength * 0.925))
+        ]
+        let ovalOrbit = CABasicAnimation(keyPath: "lineDashPhase")
+        ovalOrbit.fromValue = 0
+        ovalOrbit.toValue = -haloLength
+        ovalOrbit.duration = currentPhase == .input ? 4.2 :
+            currentPhase == .output ? 5.0 : 10.0
+        ovalOrbit.repeatCount = .infinity
+        ovalOrbit.timingFunction = CAMediaTimingFunction(name: .linear)
+        haloTracer.add(ovalOrbit, forKey: "ovalLightOrbit")
+
         // Concept 03: a 40-unit bright segment follows a 900-unit gap.
         // Arc-length normalized => no visible jump at the loop seam.
         let segment = min(CGFloat(40) * 0.61, contourLength * 0.08)
         glint.lineDashPattern = [NSNumber(value: Double(segment)),
                                  NSNumber(value: Double(contourLength - segment))]
-        lightTail.lineDashPattern = [NSNumber(value: Double(segment * 2)),
-                                     NSNumber(value: Double(contourLength - segment * 2))]
+        lightTail.lineDashPattern = [NSNumber(value: Double(segment * 2.1)),
+                                     NSNumber(value: Double(contourLength - segment * 2.1))]
         if currentPhase == .input || currentPhase == .output {
             animateLight(glint, lap: 4.0)
             animateLight(lightTail, lap: 4.0)
@@ -375,19 +429,23 @@ final class GraphiteResonanceSurface: UIView {
         cloudRight.transform = CATransform3DMakeScale(CGFloat(1 + 0.47 * mids), CGFloat(1 + 0.47 * mids), 1)
         cloudBottom.transform = CATransform3DMakeScale(CGFloat(1 + 0.50 * highs), CGFloat(1 + 0.50 * highs), 1)
         cloudCenter.transform = CATransform3DMakeScale(CGFloat(1 + 0.72 * energy), CGFloat(1 + 0.72 * energy), 1)
-        bloom.opacity = Float(active ? (0.08 + 0.55 * energy) : 0.07)
-        bloom.transform = CATransform3DMakeScale(CGFloat(0.85 + 0.46 * energy),
-                                                CGFloat(0.85 + 0.46 * energy), 1)
+        // Prevent the broad center blob that obscured the graphite fog.
+        // Keep the Expressive response in the actual clouds and ∞ ribbon.
+        bloom.opacity = Float(active ? (0.05 + 0.22 * energy) : 0.045)
+        bloom.transform = CATransform3DMakeScale(CGFloat(0.82 + 0.14 * energy),
+                                                CGFloat(0.82 + 0.14 * energy), 1)
 
-        // Original CSS: ring is invisible while idle / processing.
-        halo.opacity = active ? Float(0.10 + 0.38 * mids) : 0
+        // Thin animated ellipse is always visible; voice increases its contrast.
+        halo.opacity = active ? Float(0.23 + 0.43 * mids) : 0.19
+        haloTracer.opacity = active ? Float(0.55 + 0.33 * highs) : 0.38
         // Original CSS: audio bass expands X, mid range expands Y.
         ribbon.transform = CATransform3DMakeScale(CGFloat(1 + bass * 0.085),
                                                   CGFloat(1 + mids * 0.060), 1)
-        aura.opacity = Float(0.13 + 0.63 * energy)
-        aura.lineWidth = 19 + CGFloat(bass * 16)
-        glint.opacity = active ? Float(0.35 + 0.65 * highs) : 0
-        lightTail.opacity = active ? Float(0.22 + 0.35 * mids) : 0
+        aura.opacity = Float(0.14 + 0.49 * energy)
+        aura.lineWidth = 17 + CGFloat(bass * 10)
+        // A clearly visible moving white bar must not disappear on quiet syllables.
+        glint.opacity = active ? Float(0.82 + 0.18 * highs) : 0
+        lightTail.opacity = active ? Float(0.29 + 0.25 * mids) : 0
         let fade: Float = orbitActive ? 0.08 : 1
         artwork.opacity = fade
         CATransaction.commit()
