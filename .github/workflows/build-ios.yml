@@ -118,20 +118,6 @@ jobs:
           xcodebuild -project InterpreterLab.xcodeproj -scheme InterpreterLab \
             -configuration Debug -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/LabSimulator" CODE_SIGNING_ALLOWED=NO build
-      - name: Run renderer in iOS Simulator
-        run: |
-          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
-          xcodebuild -project InterpreterLab.xcodeproj -scheme InterpreterLab \
-            -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" \
-            -derivedDataPath "$RUNNER_TEMP/LabSimulator" \
-            -resultBundlePath "$RUNNER_TEMP/GraphiteRenderer.xcresult" \
-            CODE_SIGNING_ALLOWED=NO test
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Graphite-Renderer-Test-Results
-          path: ${{ runner.temp }}/GraphiteRenderer.xcresult
-          if-no-files-found: warn
       - name: Build for iPhone
         run: |
           xcodebuild -project InterpreterLab.xcodeproj -scheme InterpreterLab \
@@ -161,3 +147,18 @@ jobs:
           path: ${{ runner.temp }}/Interpreter-Lab-0.4.2-Unsigned.ipa
           if-no-files-found: error
           retention-days: 7
+      - name: Run renderer in iOS Simulator
+        timeout-minutes: 10
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
+          xcodebuild -project InterpreterLab.xcodeproj -scheme InterpreterLab \
+            -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" \
+            -derivedDataPath "$RUNNER_TEMP/LabSimulator" \
+            -resultBundlePath "$RUNNER_TEMP/GraphiteRenderer.xcresult" \
+            CODE_SIGNING_ALLOWED=NO test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Graphite-Renderer-Test-Results
+          path: ${{ runner.temp }}/GraphiteRenderer.xcresult
+          if-no-files-found: warn
