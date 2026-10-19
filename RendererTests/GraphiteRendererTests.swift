@@ -26,7 +26,13 @@ final class GraphiteRendererTests: XCTestCase {
                 let strokes = try XCTUnwrap(ribbon.sublayers?.compactMap { ($0 as? CAShapeLayer) ?? ($0.mask as? CAShapeLayer) })
                 XCTAssertEqual(strokes.count, 5)
                 for stroke in strokes { XCTAssertNotNil(stroke.path) }
-                XCTAssertNotNil(strokes.last?.animation(forKey: "contourLight"))
+                if phase == .input || phase == .output {
+                    XCTAssertNotNil(strokes.last?.animation(forKey: "contourLight"),
+                                    "The approved Concept 03 moving light appears during actual audio")
+                } else {
+                    XCTAssertNil(strokes.last?.animation(forKey: "contourLight"),
+                                 "The approved Concept 03 does not run the highlight in silence")
+                }
                 let image = UIGraphicsImageRenderer(bounds: surface.bounds).image { context in
                     UIColor.black.setFill()
                     context.fill(surface.bounds)
