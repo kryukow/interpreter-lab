@@ -16,7 +16,7 @@ concurrency:
 jobs:
   build:
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Check independent application boundaries
@@ -153,7 +153,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Run renderer in iOS Simulator
-        timeout-minutes: 10
+        # macOS hosted runners may need ~10 minutes just to boot the first
+        # iOS simulator/test runner; test assertions themselves finish in seconds.
+        timeout-minutes: 20
         run: |
           DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
           xcodebuild -project InterpreterLab.xcodeproj -scheme InterpreterLab \
