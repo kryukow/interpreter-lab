@@ -69,7 +69,11 @@ enum LabElevenCatalogAPI {
             case .missingKey: return "Сначала сохрани ключ ElevenLabs в настройках."
             case .invalidSelection: return "Недопустимый идентификатор голоса."
             case .badResponse: return "ElevenLabs вернул неожиданный ответ каталога."
-            case .http(let code, let text): return "ElevenLabs HTTP \(code): \(text)"
+            case .http(let code, let text):
+                if (code == 401 || code == 403) && text.contains("voices_write") {
+                    return "Не удалось добавить голос: у ключа ElevenLabs отключено Voices → Write (voices_write). Включи разрешение в настройках ключа и повтори «Добавить и выбрать». Предыдущий выбор сохранён."
+                }
+                return "ElevenLabs HTTP \(code): \(text)"
             }
         }
     }

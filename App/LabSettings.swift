@@ -179,15 +179,13 @@ struct LabSettings: View {
                                     .font(.footnote)
                                     .foregroundStyle(elevenVoiceError ? Color.orange : Color.secondary)
                             }
-                            if !model.elevenVoices.isEmpty {
                                 NavigationLink {
-                                    LabOwnedVoicePicker(title: model.partner.name, language: model.partner.rawValue, voices: model.elevenVoices, selection: $model.elevenPartnerVoice)
+                                    LabOwnedVoicePicker(model: model, title: model.partner.name, language: model.partner.rawValue, selection: $model.elevenPartnerVoice)
                                 } label: { voiceLink(model.partner.name, name: elevenName(model.elevenPartnerVoice)) }
                                 NavigationLink {
-                                    LabOwnedVoicePicker(title: "Русский голос", language: "ru", voices: model.elevenVoices, selection: $model.elevenRussianVoice)
+                                    LabOwnedVoicePicker(model: model, title: "Русский голос", language: "ru", selection: $model.elevenRussianVoice)
                                 } label: { voiceLink("Русский голос", name: elevenName(model.elevenRussianVoice)) }
 
-                            }
                             Button { showLibrary = true } label: {
                                 Label("Библиотека голосов · прослушать и выбрать", systemImage: "play.circle")
                             }
@@ -206,7 +204,7 @@ struct LabSettings: View {
                             LabGraphiteChoice(id: LabElevenModels.fast, title: "Flash v2.5", detail: "Быстрее и экономичнее", symbol: "bolt"),
                             LabGraphiteChoice(id: LabElevenModels.natural, title: "Multilingual v2", detail: "Естественнее · многоязычная речь", symbol: "waveform")
                         ], note: "Генерация расходует кредиты ElevenLabs. Прослушивание готового демо не расходует кредиты генерации.")
-                        Text("API-ключу нужны разрешения Voices → Read и Text to Speech. Пока голоса не загружены и не выбраны, ElevenLabs не сможет озвучить перевод. Перед генерацией проверь лимит кредитов.")
+                        Text("Для списка и демо нужно Voices → Read. Для добавления из библиотеки включи Voices → Write (voices_write). Для генерации перевода нужно Text to Speech. Сохранённые голоса остаются выбранными после перезапуска; обновление списка не меняет выбор. Перед генерацией проверь лимит кредитов.")
                             .font(.footnote)
                         Link("Открыть ElevenLabs", destination: URL(string: "https://elevenlabs.io/app")!)
                     }

@@ -28,6 +28,10 @@ struct ElevenAPITests {
         precondition(owned.preview(for: "pl")?.lastPathComponent == "pl.mp3")
         precondition(decoded.preview(for: "en") == nil)
         precondition(LabElevenCatalogAPI.CatalogError.http(401, "denied").errorDescription == "ElevenLabs HTTP 401: denied")
+        let permissionError = LabElevenCatalogAPI.CatalogError.http(401, "The API key you used is missing the permission voices_write to execute this operation.").errorDescription!
+        precondition(permissionError.contains("Voices → Write"))
+        precondition(permissionError.contains("Предыдущий выбор сохранён"))
+        precondition(!LabElevenCatalogAPI.CatalogError.http(500, "voices_write").errorDescription!.contains("отключено"))
         print("ElevenLabs language catalog, secure recorded previews, legacy decoding and errors passed")
     }
 }
