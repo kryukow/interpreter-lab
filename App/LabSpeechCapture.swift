@@ -135,8 +135,12 @@ private final class LabSpeechAudioRelay: @unchecked Sendable {
         next.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         next.taskHint = .dictation
         let previousRecognition = recognition
+        recognition = nil
         request = next
         audioRelay.replace(with: next)
+        // Apple Speech must not have two recognition tasks alive for the same
+        // recognizer. Audio already routes to next request before cancellation.
+        previousRecognition?.cancel()
         recognition = recognizer.recognitionTask(with: next) { [weak self] result, error in
             Task { @MainActor [weak self] in
                 guard let self, self.generation == token,
@@ -164,7 +168,6 @@ private final class LabSpeechAudioRelay: @unchecked Sendable {
                 }
             }
         }
-        previousRecognition?.cancel()
         rotation?.cancel()
         rotation = Task { [weak self] in
             try? await Task.sleep(for: .seconds(42))
