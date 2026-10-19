@@ -81,12 +81,18 @@ jobs:
           assert "LabWaveformSignalView(signal: model.visualSignal, recording: model.phase == .recording || model.phase == .playing)" in ui
           resonance = Path("App/LabGraphiteResonance.swift").read_text()
           assert "UIViewRepresentable" in resonance
-          assert "CAGradientLayer" in resonance and "CABasicAnimation" in resonance
+          assert "UIGraphicsImageRenderer" in resonance and "CABasicAnimation" in resonance
           assert "ribbonWidth: CGFloat = 188" in resonance
-          assert "ribbonHeight: CGFloat = 108" in resonance
+          assert "ribbonHeight: CGFloat = 112" in resonance
           assert "TimelineView(" not in resonance and "Canvas(" not in resonance
           assert ".blur(" not in resonance
           assert "GraphiteResonanceSurface" in resonance
+          assert "makeConcept03InfinityPath" in resonance
+          assert "controlPoint1: p(162, 99), controlPoint2: p(145, 82)" in resonance
+          assert "size.width * 0.65, height: size.height * 0.48" in resonance
+          assert "animateLight(glint, lap: 4.0)" in resonance
+          assert "cloudLeft.transform" in resonance
+          assert "softRadialImage" in resonance
           audio = Path("App/LabSpeechExporter.swift").read_text()
           assert "synth.write(utterance)" in audio
           assert "LabPlaybackSpectrum" in audio
