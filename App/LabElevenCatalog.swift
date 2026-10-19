@@ -47,7 +47,7 @@ struct LabSharedVoice: Decodable, Identifiable, Hashable {
         }) == true { return true }
         // A general recording cannot be labelled as the requested language
         // merely because the voice itself supports that language.
-        return verifiedLanguages?.isEmpty != false && LabVoiceLanguage.matches(language, code)
+        return false
     }
 }
 

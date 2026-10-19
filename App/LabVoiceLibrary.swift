@@ -3,6 +3,7 @@ import AVFoundation
 
 struct LabVoiceLibrary: View {
     @ObservedObject var model: LabSession
+    var initialLanguage: String? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var preview = LabVoicePreview()
@@ -22,7 +23,7 @@ struct LabVoiceLibrary: View {
                 VStack(alignment: .leading, spacing: 17) {
                     Text("VOICE LIBRARY").font(.system(size: 10, design: .monospaced)).tracking(3).foregroundStyle(.secondary)
                     Text("Сначала послушай.").font(.system(size: 28, weight: .light))
-                    Text("Готовые демо ElevenLabs. Кнопка воспроизведения не меняет выбранный голос и не создаёт платную генерацию.")
+                    Text("Это общая библиотека ElevenLabs, а не только голоса твоего аккаунта. Готовые записи бесплатны; создание пробы на нужном языке — отдельное действие с расходом кредитов. Прослушивание не добавляет и не выбирает голос.")
                         .font(.footnote).foregroundStyle(.secondary)
                     LabGraphiteSelectionField(title: "Язык голоса", selection: $language,
                         choices: LabElevenCatalogAPI.languages.map {
@@ -39,6 +40,10 @@ struct LabVoiceLibrary: View {
                         Text("Голосов не найдено. Попробуй другое имя или язык.").font(.footnote).foregroundStyle(.secondary)
                     }
                     if !status.isEmpty { Text(status).font(.footnote).foregroundStyle(.white.opacity(0.7)) }
+                    if !voices.isEmpty {
+                        Text("ОБЩАЯ БИБЛИОТЕКА · ПОКАЗАНО \(voices.count)")
+                            .font(.system(size: 10, design: .monospaced)).tracking(1).foregroundStyle(.secondary)
+                    }
                     if let error = preview.errorMessage { Text(error).font(.footnote).foregroundStyle(.orange) }
                     ForEach(voices) { voice in
                         VStack(alignment: .leading, spacing: 12) {
@@ -49,20 +54,15 @@ struct LabVoiceLibrary: View {
                                         .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                let identity = "library:" + voice.id
-                                Button {
-                                    if preview.activeID == identity { preview.stop() }
-                                    else { preview.playRecorded(url: voice.preview(for: language), id: identity) }
-                                } label: {
-                                    if preview.activeID == identity && preview.isLoading { ProgressView().frame(width: 40, height: 40) }
-                                    else { Image(systemName: preview.activeID == identity ? "stop.circle" : "play.circle").font(.system(size: 32, weight: .ultraLight)).frame(width: 40, height: 40) }
-                                }.accessibilityLabel("Прослушать \(voice.name)")
                             }
+                            LabVoiceAuditionControls(preview: preview, voiceID: voice.voiceID,
+                                language: language, modelID: model.elevenModel,
+                                recordedURL: voice.preview(for: language),
+                                exactLanguageRecording: voice.sampleIsInLanguage(language),
+                                recordedIdentity: "library:" + voice.id)
+
                             if let description = voice.description, !description.isEmpty {
                                 Text(description).font(.footnote).foregroundStyle(.secondary).lineLimit(3)
-                            }
-                            if !voice.sampleIsInLanguage(language) {
-                                Text("Демо может звучать на другом языке").font(.caption2).foregroundStyle(.secondary)
                             }
                             Button {
                                 preview.stop(); importing = voice.id; status = ""
@@ -75,18 +75,19 @@ struct LabVoiceLibrary: View {
                             } label: {
                                 HStack { Text(importing == voice.id ? "Добавляю…" : "Добавить и выбрать"); Spacer(); Image(systemName: "plus") }
                                     .font(.footnote).padding(.vertical, 5)
-                            }.disabled(importing != nil || busy)
+                            }.disabled(importing != nil || busy || preview.isLoading)
                         }.padding(18).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 21))
                             .overlay { RoundedRectangle(cornerRadius: 21).strokeBorder(.white.opacity(0.07), lineWidth: 0.6) }
                     }
                     if hasMore { Button(busy ? "Загружаю…" : "Показать ещё") { load(more: true) }.disabled(busy).frame(maxWidth: .infinity).padding() }
-                    Text("Добавление меняет библиотеку твоего аккаунта ElevenLabs. Некоторые голоса требуют подходящего тарифа и разрешения Voices → Write.").font(.caption).foregroundStyle(.secondary)
+                    Text("Генерация общей библиотечной пробы может требовать добавления голоса в аккаунт или подходящего тарифа. Добавление — отдельная кнопка; ей нужно Voices → Write. Платная проба требует Text to Speech.").font(.caption).foregroundStyle(.secondary)
                 }.padding(20)
             }.background(Color(red: 0.035, green: 0.039, blue: 0.047))
                 .navigationTitle("Голоса").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { dismiss() } } }
                 .task {
-                    if language != model.partner.rawValue { language = model.partner.rawValue }
+                    let requestedLanguage = initialLanguage ?? model.partner.rawValue
+                    if language != requestedLanguage { language = requestedLanguage }
                     else { refresh() }
                 }
                 .onChange(of: language) { _, _ in refresh() }

@@ -27,6 +27,11 @@ struct ElevenAPITests {
         let owned = try JSONDecoder().decode(LabElevenVoice.self, from: fixture)
         precondition(owned.preview(for: "pl")?.lastPathComponent == "pl.mp3")
         precondition(decoded.preview(for: "en") == nil)
+        let nativeOnly = Data(#"{"voice_id":"russian","public_owner_id":"owner","name":"Russian","language":"ru","labels":{"language":"ru"},"preview_url":"https://example.com/unknown.mp3"}"#.utf8)
+        let nativeShared = try JSONDecoder().decode(LabSharedVoice.self, from: nativeOnly)
+        let nativeOwned = try JSONDecoder().decode(LabElevenVoice.self, from: nativeOnly)
+        precondition(!nativeShared.sampleIsInLanguage("ru"))
+        precondition(!nativeOwned.sampleIsInLanguage("ru"))
         precondition(LabElevenCatalogAPI.CatalogError.http(401, "denied").errorDescription == "ElevenLabs HTTP 401: denied")
         let permissionError = LabElevenCatalogAPI.CatalogError.http(401, "The API key you used is missing the permission voices_write to execute this operation.").errorDescription!
         precondition(permissionError.contains("Voices → Write"))

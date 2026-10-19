@@ -17,7 +17,7 @@ struct LabElevenVoice: Decodable, Identifiable, Hashable {
     func sampleIsInLanguage(_ code: String) -> Bool {
         verifiedLanguages?.contains {
             LabVoiceLanguage.matches($0.language, code) && LabVoiceLanguage.secureURL($0.previewURL) != nil
-        } == true || (verifiedLanguages?.isEmpty != false && LabVoiceLanguage.matches(labels?["language"], code))
+        } == true
     }
 
     var id: String { voiceID }

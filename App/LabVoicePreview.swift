@@ -1,9 +1,10 @@
 import AVFoundation
 import Combine
 import Foundation
+import CryptoKit
 
 /// Auditions are isolated from selected voices and translation playback.
-/// Remote auditions only GET a provider's existing recording; never generate TTS.
+/// Recorded auditions are free GETs; generation requires its own explicit button.
 @MainActor final class LabVoicePreview: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
     @Published private(set) var activeID: String?
     @Published private(set) var isLoading = false
@@ -14,6 +15,68 @@ import Foundation
     private var generation = UUID()
     private var utterance: AVSpeechUtterance?
     private var ownsAudioSession = false
+    var generateSample: (String, String, String) async throws -> URL = { text, voiceID, modelID in
+        guard let key = try LabElevenKeychain.load() else { throw LabElevenAPI.Error.noKey }
+        return try await LabElevenAPI.synthesize(text: text, voiceID: voiceID, modelID: modelID, apiKey: key)
+    }
+
+    static func generatedCacheName(voiceID: String, language: String, modelID: String) -> String {
+        let parts = [voiceID, language, modelID, sampleText(for: language)]
+        let data = (try? JSONEncoder().encode(parts)) ?? Data()
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() + ".mp3"
+    }
+
+    private func generatedURL(voiceID: String, language: String, modelID: String) -> URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("VoiceAuditions", isDirectory: true)
+            .appendingPathComponent(Self.generatedCacheName(voiceID: voiceID, language: language, modelID: modelID))
+    }
+
+    func hasGenerated(voiceID: String, language: String, modelID: String) -> Bool {
+        FileManager.default.fileExists(atPath: generatedURL(voiceID: voiceID, language: language, modelID: modelID).path)
+    }
+
+    /// Only called by an explicitly labelled credit-spending control. A saved
+    /// result is reused across view dismissals and application restarts.
+    func playGenerated(voiceID: String, language: String, modelID: String) {
+        guard !isLoading else { return }
+        let id = "generated:" + voiceID + ":" + language + ":" + modelID
+        if activeID == id { stop(); return }
+        stop()
+        errorMessage = nil
+        let destination = generatedURL(voiceID: voiceID, language: language, modelID: modelID)
+        let cached = FileManager.default.fileExists(atPath: destination.path)
+        let token = generation
+        activeID = id
+        isLoading = true
+        download = Task { [weak self] in
+            do {
+                if !cached {
+                    guard let self else { return }
+                    let result = try await self.generateSample(Self.sampleText(for: language), voiceID, modelID)
+                    // Persist a successful response before playback. Retrying an
+                    // audio-session failure must never cause another TTS charge.
+                    let bytes = try Data(contentsOf: result)
+                    try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try bytes.write(to: destination, options: .atomic)
+                }
+                guard let self, self.generation == token, !Task.isCancelled else { return }
+                let player = try AVAudioPlayer(contentsOf: destination)
+                player.delegate = self
+                try self.prepareAudio()
+                guard player.prepareToPlay(), player.play() else { throw PreviewError.unavailable }
+                self.player = player
+                self.isLoading = false
+                self.download = nil
+            } catch {
+                guard let self, self.generation == token else { return }
+                self.stop()
+                if !(error is CancellationError) {
+                    self.errorMessage = "Не удалось прослушать пробу: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
 
     override init() {
         super.init()

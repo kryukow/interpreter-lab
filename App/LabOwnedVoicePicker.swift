@@ -23,6 +23,7 @@ struct LabOwnedVoicePicker: View {
     @State private var loading = false
     @State private var loadError = ""
     @State private var loaded = false
+    @State private var showLibrary = false
 
     private var voices: [LabElevenVoice] { model.elevenVoices }
     private var savedSelection: LabOwnedVoiceSelectionSummary {
@@ -32,8 +33,20 @@ struct LabOwnedVoicePicker: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Твои голоса ElevenLabs. Прослушай готовое демо, затем выбери голос для перевода.")
+                Text("Твои голоса ElevenLabs. Готовые демо бесплатны. Если записи на нужном языке нет, можно явно создать платную пробу — выбор голоса при этом не изменится.")
                     .font(.footnote).foregroundStyle(.secondary)
+                Button { preview.stop(); showLibrary = true } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "globe")
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Больше голосов · библиотека ElevenLabs").font(.system(size: 12, weight: .medium))
+                            Text("Общая библиотека · \(language.uppercased())").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                        }
+                        Spacer(); Image(systemName: "chevron.right").font(.caption)
+                    }.padding(16).background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 16))
+                }.buttonStyle(.plain).disabled(preview.isLoading)
+                Text("ГОЛОСА АККАУНТА · \(voices.count)")
+                    .font(.system(size: 10, design: .monospaced)).tracking(1.2).foregroundStyle(.secondary)
                 if !selection.isEmpty {
                     VStack(alignment: .leading, spacing: 9) {
                         Label("ВЫБРАН ДЛЯ \(language.uppercased())", systemImage: "checkmark.circle")
@@ -67,21 +80,16 @@ struct LabOwnedVoicePicker: View {
                         HStack {
                             Text(voice.name).font(.headline)
                             Spacer()
-                            let identity = "eleven:" + voice.voiceID
-                            Button {
-                                if preview.activeID == identity { preview.stop() }
-                                else { preview.playRecorded(url: voice.preview(for: language), id: identity) }
-                            } label: {
-                                if preview.isLoading && preview.activeID == identity { ProgressView() }
-                                else { Image(systemName: preview.activeID == identity ? "stop.circle" : "play.circle").font(.system(size: 30, weight: .ultraLight)) }
-                            }.accessibilityLabel("Прослушать \(voice.name)")
                         }
-                        if !voice.sampleIsInLanguage(language) {
-                            Text("Демо может звучать на другом языке").font(.caption2).foregroundStyle(.secondary)
-                        }
+                        LabVoiceAuditionControls(preview: preview, voiceID: voice.voiceID,
+                            language: language, modelID: model.elevenModel,
+                            recordedURL: voice.preview(for: language),
+                            exactLanguageRecording: voice.sampleIsInLanguage(language),
+                            recordedIdentity: "eleven:" + voice.voiceID)
+
                         Button { preview.stop(); selection = voice.voiceID } label: {
                             HStack { Text(selection == voice.voiceID ? "Выбран" : "Выбрать"); Spacer(); if selection == voice.voiceID { Image(systemName: "checkmark") } }.font(.footnote)
-                        }
+                        }.disabled(preview.isLoading)
                     }.padding(18).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 20))
                 }
                 if let error = preview.errorMessage { Text(error).font(.footnote).foregroundStyle(.orange) }
@@ -93,6 +101,7 @@ struct LabOwnedVoicePicker: View {
             }
             .onDisappear { preview.stop() }
             .onChange(of: scenePhase) { _, phase in if phase != .active { preview.stop() } }
+            .sheet(isPresented: $showLibrary) { LabVoiceLibrary(model: model, initialLanguage: language) }
     }
 
     @MainActor private func reload() async {
