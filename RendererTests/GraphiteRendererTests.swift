@@ -21,13 +21,31 @@ final class GraphiteRendererTests: XCTestCase {
                                orbitActive: false, reduceMotion: false)
                 XCTAssertTrue(surface.isAnimating, "Every sphere stage stays alive")
                 try await Task.sleep(nanoseconds: 700_000_000)
-                XCTAssertGreaterThan(surface.renderedFrames, 0)
+                // Hosted test windows need not receive compositor display passes.
+                // Exercise the production drawing code explicitly in a real context.
+                surface.setNeedsDisplay()
+                surface.layoutIfNeeded()
+                surface.layer.displayIfNeeded()
+                let framesBeforeSnapshot = surface.renderedFrames
                 let image = UIGraphicsImageRenderer(bounds: surface.bounds).image { context in
                     UIColor.black.setFill()
                     context.fill(surface.bounds)
-                    surface.drawHierarchy(in: surface.bounds, afterScreenUpdates: true)
+                    surface.draw(surface.bounds)
                 }
-                XCTAssertNotNil(image.cgImage)
+                XCTAssertGreaterThan(surface.renderedFrames, framesBeforeSnapshot,
+                                     "Snapshot must execute the real sphere renderer")
+                let bitmap = try XCTUnwrap(image.cgImage)
+                var pixel = [UInt8](repeating: 0, count: 4)
+                pixel.withUnsafeMutableBytes { storage in
+                    let sample = CGContext(data: storage.baseAddress, width: 1, height: 1,
+                                           bitsPerComponent: 8, bytesPerRow: 4,
+                                           space: CGColorSpaceCreateDeviceRGB(),
+                                           bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                    sample.interpolationQuality = .high
+                    sample.draw(bitmap, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+                }
+                XCTAssertGreaterThan(Int(pixel[0]) + Int(pixel[1]) + Int(pixel[2]), 0,
+                                     "The rendered sphere must contain visible graphite light")
                 let attachment = XCTAttachment(image: image)
                 attachment.name = "Graphite-Sphere-\(phase)-\(Int(width))"
                 attachment.lifetime = .keepAlways
