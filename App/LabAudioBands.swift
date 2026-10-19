@@ -2,7 +2,7 @@ import Foundation
 
 /// Three energy bands calculated from real PCM, shared by microphone and rendered Apple speech.
 /// Filter split points are ~250 Hz and ~2200 Hz. This is display-only DSP, never an audio effect.
-struct LabAudioBands: Equatable {
+struct LabAudioBands: Equatable, Sendable {
     let low: Double
     let mid: Double
     let high: Double

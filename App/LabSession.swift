@@ -12,8 +12,15 @@ import SwiftUI
     @Published private(set) var translation = ""
     @Published private(set) var language = "ru"
     @Published private(set) var partner = PartnerLanguage.current(UserDefaults.standard.string(forKey: "lab.partnerLanguage") ?? "de")
-    @Published private(set) var levels = Array(repeating: 0.0, count: 40)
-    @Published private(set) var visualBands: LabAudioBands = .silence
+    let visualSignal = LabVisualSignal()
+    private(set) var levels: [Double] {
+        get { visualSignal.levels }
+        set { visualSignal.levels = newValue }
+    }
+    private(set) var visualBands: LabAudioBands {
+        get { visualSignal.bands }
+        set { visualSignal.bands = newValue }
+    }
     @Published private(set) var elapsed = 0.0
     @Published private(set) var detail = ""
     @Published private(set) var keySaved = false
@@ -131,33 +138,15 @@ import SwiftUI
         translation = ""
         detail = ""
         levels = Array(repeating: 0, count: 40)
-        visualBands = .silence
-        lastMicrophoneVisualUpdate = 0
-        pendingMicrophoneBands = .silence
-        clearCachedSpeech()
-        elapsed = 0
-        phase = .arming
-        message = "Готовлю микрофон · пока не говори"
-        operation = Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.capture.start(
-                    locale: lang == "ru" ? "ru-RU" : partner.speechLocale,
-                    onText: { [weak self] value in
-                        guard let self, self.generation == token else { return }
-                        self.source = value
-                    },
-                    onLevel: { [weak self] value in
-                        guard let self, self.generation == token && self.phase == .recording else { return }
-                        // Avoid re-rendering the entire SwiftUI screen at mic tap rate.
-                        // 20 Hz is enough for expressive light while Core Animation stays smooth.
+        visualBands =…267 tokens truncated…          // 20 Hz is enough for expressive light while Core Animation stays smooth.
                         let now = ProcessInfo.processInfo.systemUptime
                         guard now - self.lastMicrophoneVisualUpdate >= 0.05 else { return }
                         self.lastMicrophoneVisualUpdate = now
                         self.levels.removeFirst()
                         self.levels.append(value)
                         self.visualBands = self.pendingMicrophoneBands
-                        self.elapsed = Date().timeIntervalSince(self.recordingStarted)
+                        let elapsed = Date().timeIntervalSince(self.recordingStarted)
+                        if elapsed - self.elapsed >= 0.2 { self.elapsed = elapsed }
                     },
                     onBands: { [weak self] bands in
                         guard let self, self.generation == token && self.phase == .recording else { return }
@@ -320,7 +309,15 @@ import SwiftUI
                         try? FileManager.default.removeItem(at: url)
                         return
                     }
-                    spectrum = try LabPlaybackSpectrum(url: url)
+                    // Full-file DSP must not block touch handling or layer updates.
+                    let analysis = Task.detached(priority: .userInitiated) {
+                        try LabPlaybackSpectrum(url: url)
+                    }
+                    spectrum = try await withTaskCancellationHandler {
+                        try await analysis.value
+                    } onCancel: {
+                        analysis.cancel()
+                    }
                     self.clearCachedSpeech()
                     self.cachedSpeech = (text, voice.identifier, url, spectrum)
                 }

@@ -135,7 +135,7 @@ private final class LabRenderCollector {
 /// Pre-sampled energy envelopes from the same CAF that will be played.
 /// 25 measurements per second; querying by AVAudioPlayer.currentTime keeps
 /// even consonant attacks aligned with actual spoken playback.
-struct LabPlaybackSpectrum {
+struct LabPlaybackSpectrum: Sendable {
     private let frames: [LabAudioBands]
     private let samplesPerSecond: Double = 25
 
@@ -150,6 +150,7 @@ struct LabPlaybackSpectrum {
         measurements.reserveCapacity(Int(min(10000, Double(file.length) / Double(capacity) + 1)))
         // Audio is only analyzed, never modified or resampled.
         while file.framePosition < file.length {
+            try Task.checkCancellation()
             try file.read(into: buffer, frameCount: capacity)
             let count = Int(buffer.frameLength)
             guard count > 0 else { break }

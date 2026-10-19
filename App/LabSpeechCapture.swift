@@ -93,8 +93,8 @@ import Speech
             )
             Task { @MainActor [weak self] in
                 guard let self, self.generation == token else { return }
-                onLevel(level)
                 onBands(bands)
+                onLevel(level)
             }
         }
         installedTap = true

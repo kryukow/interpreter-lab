@@ -2,11 +2,7 @@ import SwiftUI
 import UIKit
 import QuartzCore
 
-enum LabResonancePhase: Equatable {
-    case idle, input, processing, output
-}
-
-/// Approved Graphite / Expressive theme.
+/// Graphite / Expressive renderer; exact CONCEPT 03 parity is pending its source.
 ///
 /// No TimelineView, Canvas, per-frame SwiftUI rendering, .blur modifiers, or
 /// software filters. The monochrome blobs drift via Core Animation on their
@@ -16,17 +12,18 @@ struct LabGraphiteResonance: UIViewRepresentable {
     let phase: LabResonancePhase
     let bands: LabAudioBands
     let orbitActive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeUIView(context: Context) -> GraphiteResonanceSurface {
         let view = GraphiteResonanceSurface()
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = false
-        view.update(phase: phase, bands: bands, orbitActive: orbitActive)
+        view.update(phase: phase, bands: bands, orbitActive: orbitActive, reduceMotion: reduceMotion)
         return view
     }
 
     func updateUIView(_ uiView: GraphiteResonanceSurface, context: Context) {
-        uiView.update(phase: phase, bands: bands, orbitActive: orbitActive)
+        uiView.update(phase: phase, bands: bands, orbitActive: orbitActive, reduceMotion: reduceMotion)
     }
 }
 
@@ -37,11 +34,18 @@ final class GraphiteResonanceSurface: UIView {
     private let cloudLeft = CAGradientLayer()
     private let cloudRight = CAGradientLayer()
     private let cloudBottom = CAGradientLayer()
+    private let artwork = CALayer()
+    private let halo = CAShapeLayer()
     private let ribbon = CALayer()
     private let aura = CAShapeLayer()
     private let underside = CAShapeLayer()
     private let mainStroke = CAShapeLayer()
     private let glint = CAShapeLayer()
+    private let lightTail = CAShapeLayer()
+    private var contourLength: CGFloat = 1
+    private var motionEnabled = false
+    private var configuredPhase: LabResonancePhase?
+    private var reduceMotion = false
     private var previousSize = CGSize.zero
 
     // 188 x 108: around a third narrower than the initial oversized version.
@@ -60,12 +64,15 @@ final class GraphiteResonanceSurface: UIView {
         configureCloud(cloudLeft, white: 0.65, alpha: 0.40)
         configureCloud(cloudRight, white: 0.87, alpha: 0.32)
         configureCloud(cloudBottom, white: 0.54, alpha: 0.29)
-        layer.addSublayer(cloudLeft)
-        layer.addSublayer(cloudRight)
-        layer.addSublayer(cloudBottom)
+        layer.addSublayer(artwork)
+        artwork.addSublayer(cloudLeft)
+        artwork.addSublayer(cloudRight)
+        artwork.addSublayer(cloudBottom)
+        setupStroke(halo, color: UIColor(white: 0.77, alpha: 1), width: 0.65)
+        artwork.addSublayer(halo)
 
         ribbon.masksToBounds = false
-        layer.addSublayer(ribbon)
+        artwork.addSublayer(ribbon)
         setupStroke(aura, color: UIColor(white: 0.83, alpha: 1), width: 16)
         aura.opacity = 0.18
         aura.shadowColor = UIColor(white: 0.88, alpha: 1).cgColor
@@ -73,12 +80,13 @@ final class GraphiteResonanceSurface: UIView {
         aura.shadowOpacity = 0.26
         aura.shadowOffset = .zero
         setupStroke(underside, color: UIColor(white: 0.23, alpha: 1), width: 10)
-        setupStroke(mainStroke, color: UIColor(white: 0.95, alpha: 1), width: 6.5)
+        setupStroke(mainStroke, color: UIColor(white: 0.64, alpha: 1), width: 6.5)
+        setupStroke(lightTail, color: UIColor(white: 0.90, alpha: 1), width: 7.5)
         setupStroke(glint, color: .white, width: 2.1)
         glint.opacity = 0.25
         glint.lineDashPattern = [22, 360]
-        [aura, underside, mainStroke, glint].forEach(ribbon.addSublayer)
-        startAmbientMovement()
+        [aura, underside, mainStroke, lightTail, glint].forEach(ribbon.addSublayer)
+
     }
 
     required init?(coder: NSCoder) {
@@ -116,6 +124,10 @@ final class GraphiteResonanceSurface: UIView {
         previousSize = size
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        artwork.frame = bounds
+        halo.frame = bounds
+        halo.path = UIBezierPath(ovalIn: CGRect(x: size.width * 0.065, y: size.height * 0.10,
+                                              width: size.width * 0.87, height: size.height * 0.80)).cgPath
         cloudLeft.frame = CGRect(
             x: -size.width * 0.10, y: size.height * 0.12,
             width: size.width * 0.67, height: size.height * 0.82)
@@ -133,11 +145,43 @@ final class GraphiteResonanceSurface: UIView {
             y: (size.height - height) * 0.5 - 1,
             width: width, height: height)
         let path = makeInfinityPath(in: ribbon.bounds)
-        for item in [aura, underside, mainStroke, glint] {
+        for item in [aura, underside, mainStroke, lightTail, glint] {
             item.frame = ribbon.bounds
             item.path = path
         }
+        aura.shadowPath = path.copy(strokingWithWidth: 16, lineCap: .round, lineJoin: .round, miterLimit: 10)
+        // The closed contour has a single dash period, so the light wraps without a seam.
+        contourLength = length(of: path)
         CATransaction.commit()
+        configureMotion(force: true)
+    }
+
+    private func length(of path: CGPath) -> CGFloat {
+        var last = CGPoint.zero
+        var first = CGPoint.zero
+        var total: CGFloat = 0
+        func add(_ point: CGPoint) {
+            total += hypot(point.x - last.x, point.y - last.y)
+            last = point
+        }
+        path.applyWithBlock { pointer in
+            let element = pointer.pointee
+            switch element.type {
+            case .moveToPoint: last = element.points[0]; first = last
+            case .addLineToPoint: add(element.points[0])
+            case .addCurveToPoint:
+                let start = last
+                let a = element.points[0], b = element.points[1], end = element.points[2]
+                for step in 1...48 {
+                    let t = CGFloat(step) / 48, u = 1 - t
+                    add(CGPoint(x: u*u*u*start.x + 3*u*u*t*a.x + 3*u*t*t*b.x + t*t*t*end.x,
+                                y: u*u*u*start.y + 3*u*u*t*a.y + 3*u*t*t*b.y + t*t*t*end.y))
+                }
+            case .closeSubpath: add(first)
+            default: break
+            }
+        }
+        return max(1, total)
     }
 
     // Rounded, balanced 2:1 infinity. Sized to 188 x 108 points in the view.
@@ -165,6 +209,7 @@ final class GraphiteResonanceSurface: UIView {
                       controlPoint1: pt(0.92, 0.69), controlPoint2: pt(0.84, 0.82))
         path.addCurve(to: pt(0.50, 0.50),
                       controlPoint1: pt(0.62, 0.82), controlPoint2: pt(0.58, 0.67))
+        path.close()
         return path.cgPath
     }
 
@@ -174,12 +219,44 @@ final class GraphiteResonanceSurface: UIView {
         addDrift(cloudLeft, dx: 15, dy: -6, seconds: 11)
         addDrift(cloudRight, dx: -18, dy: 7, seconds: 13)
         addDrift(cloudBottom, dx: 7, dy: -9, seconds: 16)
-        let light = CABasicAnimation(keyPath: "lineDashPhase")
-        light.fromValue = 0
-        light.toValue = 390
-        light.duration = 7.5
-        light.repeatCount = .infinity
-        glint.add(light, forKey: "quietGlint")
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        configureMotion(force: true)
+    }
+
+    private func configureMotion(force: Bool = false) {
+        let enabled = window != nil && !reduceMotion
+        guard force || motionEnabled != enabled || configuredPhase != currentPhase else { return }
+        motionEnabled = enabled
+        configuredPhase = currentPhase
+        let style = currentPhase.style
+        for item in [cloudLeft, cloudRight, cloudBottom, halo, glint, lightTail] {
+            item.removeAllAnimations()
+        }
+        glint.lineDashPattern = [NSNumber(value: Double(contourLength) * 0.045),
+                                NSNumber(value: Double(contourLength) * 0.955)]
+        lightTail.lineDashPattern = [NSNumber(value: Double(contourLength) * style.tail),
+                                    NSNumber(value: Double(contourLength) * (1 - style.tail))]
+        guard enabled else { return }
+        startAmbientMovement()
+        for item in [glint, lightTail] {
+            let light = CABasicAnimation(keyPath: "lineDashPhase")
+            light.fromValue = 0
+            light.toValue = style.lap > 0 ? -contourLength : contourLength
+            light.duration = abs(style.lap)
+            light.repeatCount = .infinity
+            item.add(light, forKey: "contourLight")
+        }
+        let breath = CABasicAnimation(keyPath: "transform.scale")
+        breath.fromValue = 0.985
+        breath.toValue = 1.015
+        breath.duration = style.breath
+        breath.autoreverses = true
+        breath.repeatCount = .infinity
+        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        halo.add(breath, forKey: "breathing")
     }
 
     private func addDrift(_ cloud: CALayer, dx: CGFloat, dy: CGFloat, seconds: CFTimeInterval) {
@@ -195,8 +272,11 @@ final class GraphiteResonanceSurface: UIView {
         }
     }
 
-    func update(phase: LabResonancePhase, bands: LabAudioBands, orbitActive: Bool) {
+    func update(phase: LabResonancePhase, bands: LabAudioBands, orbitActive: Bool, reduceMotion: Bool) {
+        self.reduceMotion = reduceMotion
         currentPhase = phase
+        configureMotion()
+        let style = phase.style
         let active = phase == .input || phase == .output
         // User-approved preset: Graphite + Expressive.
         let low = active ? min(1, bands.low * 1.7) : 0
@@ -207,18 +287,20 @@ final class GraphiteResonanceSurface: UIView {
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.12)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        cloudLeft.opacity = Float(0.38 + low * 0.51)
-        cloudRight.opacity = Float(0.38 + mid * 0.54)
-        cloudBottom.opacity = Float(0.29 + high * 0.61)
+        cloudLeft.opacity = style.cloud + Float(low * 0.38)
+        cloudRight.opacity = style.cloud + Float(mid * 0.38)
+        cloudBottom.opacity = style.cloud * 0.8 + Float(high * 0.44)
         aura.opacity = Float(0.16 + energy * 0.60 + (phase == .processing ? 0.11 : 0))
         aura.lineWidth = 15 + CGFloat(low) * 12
-        glint.opacity = Float(0.22 + high * 0.58)
+        glint.opacity = min(1, style.light + Float(high * 0.25))
+        lightTail.opacity = 0.23 + Float(mid * 0.33)
+        halo.opacity = style.halo + Float(energy * 0.22)
         mainStroke.lineWidth = 6.5 + CGFloat(mid) * 1.3
         // The form stays legible; dynamic change < 6%, unlike old 280px symbol.
         ribbon.transform = CATransform3DMakeScale(
             CGFloat(1 + low * 0.049), CGFloat(1 + mid * 0.048), 1)
         let fade: Float = orbitActive ? 0.08 : 1.0
-        ribbon.opacity = fade
+        artwork.opacity = fade
         CATransaction.commit()
     }
 }

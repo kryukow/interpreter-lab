@@ -70,9 +70,9 @@ struct LabView: View {
                 .padding(.top, 12)
 
                 ZStack {
-                    LabGraphiteResonance(
+                    LabGraphiteSignalView(
+                        signal: model.visualSignal,
                         phase: resonancePhase,
-                        bands: model.visualBands,
                         orbitActive: orbitActive
                     )
                     .frame(height: 168)
@@ -113,7 +113,7 @@ struct LabView: View {
                 .animation(.spring(response: 0.29, dampingFraction: 0.85), value: partnerCode)
                 .sensoryFeedback(.selection, trigger: partnerCode)
 
-                MicrophoneWaveform(levels: model.levels, recording: model.phase == .recording || model.phase == .playing)
+                LabWaveformSignalView(signal: model.visualSignal, recording: model.phase == .recording || model.phase == .playing)
                     .frame(height: 23)
 
                 VStack(spacing: 3) {

@@ -5,8 +5,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.4.1'
-    CURRENT_PROJECT_VERSION: '7'
+    MARKETING_VERSION: '0.4.2'
+    CURRENT_PROJECT_VERSION: '8'
     TARGETED_DEVICE_FAMILY: '1'
 targets:
   InterpreterLab:
@@ -23,8 +23,22 @@ targets:
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Распознавание русской, немецкой, английской, испанской, румынской и польской речи перед переводом.
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIBackgroundModes: []
+  GraphiteRendererTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [RendererTests]
+    dependencies:
+      - target: InterpreterLab
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: org.interpreter.lab.renderer-tests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/InterpreterLab.app/InterpreterLab
+        BUNDLE_LOADER: $(TEST_HOST)
 schemes:
   InterpreterLab:
     build:
       targets:
         InterpreterLab: all
+    test:
+      targets: [GraphiteRendererTests]
