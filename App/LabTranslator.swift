@@ -4,12 +4,14 @@ enum LabTranslator {
     enum TranslationError: LocalizedError {
         case emptyInput
         case missingModel
+        case inputTooLong
         case http(status: Int, detail: String, requestID: String?)
 
         var errorDescription: String? {
             switch self {
             case .emptyInput: return "Сначала произнеси или напиши фразу."
             case .missingModel: return "Выбери модель перевода в настройках."
+            case .inputTooLong: return "Распознанный текст слишком длинный для одного перевода. Раздели его на две части."
             case .http(let status, let detail, let requestID):
                 let suffix = requestID.map { " · Запрос: " + $0 } ?? ""
                 return "OpenAI HTTP \(status): \(detail)\(suffix)"
@@ -24,7 +26,9 @@ enum LabTranslator {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { throw TranslationError.emptyInput }
         guard !model.isEmpty else { throw TranslationError.missingModel }
-        let bounded = String(input.prefix(6000))
+        // Never silently erase the end of a successfully recognized utterance.
+        guard input.count <= 12000 else { throw TranslationError.inputTooLong }
+        let bounded = input
         let sourceName = PartnerLanguage.sourceName(source)
         let targetName = PartnerLanguage.sourceName(target)
         let instructions = """
