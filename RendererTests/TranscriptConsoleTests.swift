@@ -23,7 +23,7 @@ final class TranscriptConsoleTests: XCTestCase {
 
     @MainActor private func findTextView(in view: UIView) -> UITextView? {
         if let text = view as? UITextView { return text }
-        return view.subviews.lazy.compactMap { findTextView(in: $0) }.first
+        return view.subviews.lazy.compactMap { self.findTextView(in: $0) }.first
     }
 
     @MainActor func testLiveUnicodeTailManualScrollAndResume() async throws {
