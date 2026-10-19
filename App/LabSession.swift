@@ -39,6 +39,21 @@ import SwiftUI
     @Published var autoSpeak: Bool = (UserDefaults.standard.object(forKey: "lab.autoSpeak") as? Bool) ?? true {
         didSet { UserDefaults.standard.set(autoSpeak, forKey: "lab.autoSpeak") }
     }
+
+    @Published var speechEngine: String = UserDefaults.standard.string(forKey: "lab.speechEngine") ?? "apple" {
+        didSet { UserDefaults.standard.set(speechEngine, forKey: "lab.speechEngine") }
+    }
+    @Published var elevenModel: String = UserDefaults.standard.string(forKey: "lab.elevenModel") ?? LabElevenModels.fast {
+        didSet { UserDefaults.standard.set(elevenModel, forKey: "lab.elevenModel") }
+    }
+    @Published var elevenRussianVoice: String = UserDefaults.standard.string(forKey: "lab.elevenVoice.ru") ?? "" {
+        didSet { UserDefaults.standard.set(elevenRussianVoice, forKey: "lab.elevenVoice.ru") }
+    }
+    @Published var elevenPartnerVoice: String = "" {
+        didSet { UserDefaults.standard.set(elevenPartnerVoice, forKey: "lab.elevenVoice.\(partner.rawValue)") }
+    }
+    @Published private(set) var elevenKeySaved = false
+    @Published private(set) var elevenVoices: [LabElevenVoice] = []
     @Published var selectedPartnerVoiceID = "" {
         didSet { UserDefaults.standard.set(selectedPartnerVoiceID, forKey: "lab.voice.\(partner.rawValue)") }
     }
@@ -54,6 +69,7 @@ import SwiftUI
     private var outputSpectrum: LabPlaybackSpectrum?
     private var playbackMeter: Task<Void, Never>?
     private var cachedSpeech: (text: String, voiceID: String, url: URL, spectrum: LabPlaybackSpectrum)?
+    private var cachedEleven: (text: String, voiceID: String, modelID: String, url: URL)?
     private var watchdog: Task<Void, Never>?
     private var operation: Task<Void, Never>?
     private var generation = UUID()
@@ -74,6 +90,8 @@ import SwiftUI
     override init() {
         super.init()
         selectedPartnerVoiceID = UserDefaults.standard.string(forKey: "lab.voice.\(partner.rawValue)") ?? ""
+        elevenPartnerVoice = UserDefaults.standard.string(forKey: "lab.elevenVoice.\(partner.rawValue)") ?? ""
+        refreshElevenKey()
         speaker.delegate = self
         refreshKey()
         chatGPTAccount = (try? SessionStore.load())?.email ?? ""
@@ -104,6 +122,27 @@ import SwiftUI
     func saveKey(_ key: String) throws { try LabKeychain.save(key); refreshKey() }
     func deleteKey() throws { try LabKeychain.delete(); refreshKey() }
 
+    func refreshElevenKey() { elevenKeySaved = (try? LabElevenKeychain.load()) != nil }
+    func saveElevenKey(_ value: String) throws {
+        try LabElevenKeychain.save(value)
+        refreshElevenKey()
+        elevenVoices = []
+        clearCachedEleven()
+    }
+    func deleteElevenKey() throws {
+        try LabElevenKeychain.delete()
+        refreshElevenKey()
+        elevenVoices = []
+        elevenRussianVoice = ""
+        elevenPartnerVoice = ""
+        clearCachedEleven()
+        speechEngine = "apple"
+    }
+    func loadElevenVoices() async throws {
+        guard let key = try LabElevenKeychain.load() else { throw LabElevenAPI.Error.noKey }
+        elevenVoices = try await LabElevenAPI.voices(apiKey: key)
+    }
+
     func voices(for language: String) -> [AVSpeechSynthesisVoice] {
         AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language.lowercased().hasPrefix(language) }
@@ -117,6 +156,7 @@ import SwiftUI
         guard choice != partner else { return }
         partner = choice
         selectedPartnerVoiceID = UserDefaults.standard.string(forKey: "lab.voice.\(choice.rawValue)") ?? ""
+        elevenPartnerVoice = UserDefaults.standard.string(forKey: "lab.elevenVoice.\(choice.rawValue)") ?? ""
         language = "ru"
         source = ""
         translation = ""
@@ -142,6 +182,7 @@ import SwiftUI
         lastMicrophoneVisualUpdate = 0
         pendingMicrophoneBands = .silence
         clearCachedSpeech()
+        clearCachedEleven()
         elapsed = 0
         phase = .arming
         message = "Готовлю микрофон · пока не говори"
@@ -251,6 +292,7 @@ import SwiftUI
         translationTarget = from == "ru" ? partner.rawValue : "ru"
         translation = ""
         clearCachedSpeech()
+        clearCachedEleven()
         phase = .translating
         message = "OpenAI · перевожу готовую фразу"
         detail = "\(from == "ru" ? "Русский → \(partner.name)" : "\(partner.name) → Русский") · \(model) · \(selectedSource == "chatgpt" ? "ChatGPT" : "API")"
@@ -305,6 +347,11 @@ import SwiftUI
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         utterance.pitchMultiplier = 1.0
         visualBands = .silence
+
+        if speechEngine == "elevenlabs" {
+            playElevenSpeech(fallback: utterance)
+            return
+        }
 
         // Exact rendered Apple speech PCM drives both the sound and the animation.
         // Keep the original speak() API as a safe fallback if offline rendering fails.
@@ -371,6 +418,84 @@ import SwiftUI
         }
     }
 
+    private func playElevenSpeech(fallback utterance: AVSpeechUtterance) {
+        let token = generation
+        let target = translationTarget
+        let voiceID = target == "ru" ? elevenRussianVoice :
+            UserDefaults.standard.string(forKey: "lab.elevenVoice.\(target)") ?? ""
+        let text = translation
+        let model = elevenModel
+        guard elevenKeySaved, !voiceID.isEmpty else {
+            playRegularAppleVoice(utterance, token: token)
+            message = "Настрой ElevenLabs: ключ и голос \(target). Пока звучит Apple TTS."
+            return
+        }
+        phase = .preparingVoice
+        message = "ElevenLabs · создаю озвучивание (расходуются кредиты)"
+        operation?.cancel()
+        operation = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let url: URL
+                if let cached = self.cachedEleven, cached.text == text,
+                   cached.voiceID == voiceID, cached.modelID == model {
+                    url = cached.url
+                } else {
+                    guard let key = try LabElevenKeychain.load() else { throw LabElevenAPI.Error.noKey }
+                    url = try await LabElevenAPI.synthesize(
+                        text: text, voiceID: voiceID, modelID: model, apiKey: key)
+                    guard self.generation == token && !Task.isCancelled else {
+                        try? FileManager.default.removeItem(at: url)
+                        return
+                    }
+                    self.clearCachedEleven()
+                    self.cachedEleven = (text, voiceID, model, url)
+                }
+                guard self.generation == token && !Task.isCancelled else { return }
+                let audioSession = AVAudioSession.sharedInstance()
+                try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+                try audioSession.setActive(true)
+                let player = try AVAudioPlayer(contentsOf: url)
+                player.isMeteringEnabled = true
+                player.delegate = self
+                guard player.prepareToPlay(), player.play() else {
+                    throw Failure.message("Не удалось воспроизвести MP3 ElevenLabs.")
+                }
+                self.outputPlayer = player
+                self.phase = .playing
+                self.message = "Звучит ElevenLabs · \(model == LabElevenModels.fast ? "Flash v2.5" : "Multilingual v2")"
+                self.startElevenMeter(token: token, player: player)
+            } catch {
+                guard self.generation == token && !Task.isCancelled else { return }
+                let failure = error.localizedDescription
+                self.playRegularAppleVoice(utterance, token: token)
+                self.message = "ElevenLabs: \(failure). Звучит резервный Apple TTS."
+            }
+        }
+    }
+
+    private func startElevenMeter(token: UUID, player: AVAudioPlayer) {
+        playbackMeter?.cancel()
+        playbackMeter = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.generation == token, self.phase == .playing,
+                      self.outputPlayer === player, player.isPlaying else { return }
+                player.updateMeters()
+                let rms = pow(10, Double(player.averagePower(forChannel: 0)) / 20)
+                let peak = pow(10, Double(player.peakPower(forChannel: 0)) / 20)
+                let drive = max(0, min(1, rms * 5.5))
+                // This path follows REAL ElevenLabs audio loudness, not a
+                // fabricated frequency spectrum. Three channels share envelope.
+                let bands = LabAudioBands(low: drive, mid: drive,
+                    high: min(1, peak * 4.0))
+                self.visualBands = bands
+                self.levels.removeFirst()
+                self.levels.append(bands.overall)
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
+    }
+
     private func startPlaybackMeter(token: UUID, player: AVAudioPlayer,
                                     spectrum: LabPlaybackSpectrum) {
         playbackMeter?.cancel()
@@ -433,6 +558,13 @@ import SwiftUI
         cachedSpeech = nil
     }
 
+    private func clearCachedEleven() {
+        if let cachedEleven {
+            try? FileManager.default.removeItem(at: cachedEleven.url)
+        }
+        cachedEleven = nil
+    }
+
     private func haltPlayback() {
         watchdog?.cancel()
         watchdog = nil
@@ -473,6 +605,7 @@ import SwiftUI
         capture.cancel()
         haltPlayback()
         clearCachedSpeech()
+        clearCachedEleven()
         held = nil
         levels = Array(repeating: 0, count: 40)
         phase = .idle
