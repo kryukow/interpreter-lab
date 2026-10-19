@@ -83,6 +83,10 @@ final class GraphitePressControl: UIButton {
         isExclusiveTouch = true
         layer.cornerRadius = 22
         clipsToBounds = true
+        // UIKit lazily inserts configuration content after initialization.
+        // Explicit depths keep this material behind the mic and language label.
+        graphite.zPosition = -2
+        rim.zPosition = -1
         graphite.startPoint = CGPoint(x: 0, y: 0)
         graphite.endPoint = CGPoint(x: 0.9, y: 1)
         layer.insertSublayer(graphite, at: 0)
@@ -103,6 +107,7 @@ final class GraphitePressControl: UIButton {
         super.layoutSubviews()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        layer.cornerRadius = 22
         graphite.frame = bounds
         rim.frame = bounds
         rimMask.frame = bounds
@@ -113,6 +118,9 @@ final class GraphitePressControl: UIButton {
     func configure(title: String, subtitle: String, pressed: Bool) {
         speechPressed = pressed
         var config = UIButton.Configuration.plain()
+        config.cornerStyle = .fixed
+        config.background.cornerRadius = 22
+        config.background.backgroundColor = .clear
         config.title = title
         config.image = UIImage(systemName: "mic")
         config.preferredSymbolConfigurationForImage = .init(pointSize: 21, weight: .regular)
