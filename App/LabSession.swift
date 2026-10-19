@@ -43,6 +43,9 @@ import SwiftUI
     @Published var speechEngine: String = UserDefaults.standard.string(forKey: "lab.speechEngine") ?? "apple" {
         didSet { UserDefaults.standard.set(speechEngine, forKey: "lab.speechEngine") }
     }
+    @Published var elevenAutoGenerate: Bool = UserDefaults.standard.bool(forKey: "lab.elevenAutoGenerate") {
+        didSet { UserDefaults.standard.set(elevenAutoGenerate, forKey: "lab.elevenAutoGenerate") }
+    }
     @Published var elevenModel: String = UserDefaults.standard.string(forKey: "lab.elevenModel") ?? LabElevenModels.fast {
         didSet { UserDefaults.standard.set(elevenModel, forKey: "lab.elevenModel") }
     }
@@ -81,6 +84,15 @@ import SwiftUI
     var busy: Bool { phase != .idle && phase != .playing }
     var canBegin: Bool { phase == .idle || phase == .playing }
     var canReplay: Bool { !translation.isEmpty && phase == .idle }
+    var replayCaption: String {
+        if speechEngine != "elevenlabs" { return "Прослушать снова · Apple TTS бесплатно" }
+        let voice = translationTarget == "ru" ? elevenRussianVoice :
+            UserDefaults.standard.string(forKey: "lab.elevenVoice.\(translationTarget)") ?? ""
+        let cached = cachedEleven?.text == translation && cachedEleven?.modelID == elevenModel
+            && cachedEleven?.voiceID == voice
+        return cached ? "Прослушать снова · без новых кредитов"
+            : "Озвучить ElevenLabs · расход кредитов"
+    }
     var version: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
@@ -316,8 +328,10 @@ import SwiftUI
                 guard self.generation == token && !Task.isCancelled else { return }
                 self.translation = value
                 self.phase = .idle
-                self.message = "Перевод готов · \(self.autoSpeak ? "озвучиваю" : "нажми «Прослушать»")"
-                if self.autoSpeak { self.speak() }
+                let automatic = self.autoSpeak &&
+                    (self.speechEngine != "elevenlabs" || self.elevenAutoGenerate)
+                self.message = "Перевод готов · \(automatic ? "озвучиваю" : "нажми «Прослушать»")"
+                if automatic { self.speak() }
             } catch {
                 guard self.generation == token else { return }
                 self.phase = .idle
