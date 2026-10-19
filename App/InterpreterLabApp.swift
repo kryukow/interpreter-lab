@@ -183,7 +183,7 @@ struct LabView: View {
                     Text(model.translation.isEmpty ? "—" : model.translation)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Button("Прослушать снова · бесплатно") { model.replay() }
+                    Button(model.replayCaption) { model.replay() }
                         .disabled(!model.canReplay)
                     if !model.detail.isEmpty {
                         Text(model.detail).font(.caption2).foregroundStyle(.secondary)
@@ -447,6 +447,12 @@ struct LabSettings: View {
                                 deleteElevenKey = true
                             }.disabled(elevenBusy)
                         }
+                        Toggle("Автогенерация ElevenLabs (расход кредитов)",
+                               isOn: $model.elevenAutoGenerate)
+                        Text(model.elevenAutoGenerate
+                             ? "После каждого перевода ElevenLabs будет автоматически генерировать платное аудио."
+                             : "Автоматическая платная генерация отключена. Можно проверить голос вручную кнопкой «Озвучить» после перевода.")
+                            .font(.footnote)
                         Picker("Модель генерации", selection: $model.elevenModel) {
                             Text("Flash v2.5 · быстрее и экономичнее").tag(LabElevenModels.fast)
                             Text("Multilingual v2 · естественнее").tag(LabElevenModels.natural)
