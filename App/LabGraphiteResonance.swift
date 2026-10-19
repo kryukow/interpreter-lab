@@ -2,10 +2,8 @@ import SwiftUI
 import UIKit
 import QuartzCore
 
-/// The accepted RESONANCE / CONCEPT 03, palette Graphite, preset Expressive.
-/// Canonical SVG path/control points, 4 soft monochrome clouds, 65% x 48%
-/// thin oval halo, and 40-unit traveling highlight are carried over from the
-/// actual approved interactive prototype. No alternative drawing is used.
+/// Graphite observatory: the canonical infinity in a quiet, layered orbital field.
+/// Core Animation owns continuous motion; voice updates only change its intensity.
 struct LabGraphiteResonance: UIViewRepresentable {
     let phase: LabResonancePhase
     let bands: LabAudioBands
@@ -28,9 +26,8 @@ struct LabGraphiteResonance: UIViewRepresentable {
 }
 
 /// Compositor-only rendering:
-/// - Blurred radial light fields are drawn into 256px textures ONCE, not blurred
-///   or repainted every frame.
-/// - Core Animation drifts cloud holders independently from their voice scales.
+/// - Feathered dust-lane textures are baked once and transformed by the compositor.
+/// - Core Animation drifts slender dust lanes independently from voice scales.
 /// - A CAShapeLayer animates dashPhase for the continuously traveling ∞ highlight.
 /// - Audio-driven changes touch only opacity/transform/stroke width at <=20 Hz.
 final class GraphiteResonanceSurface: UIView {
@@ -50,6 +47,8 @@ final class GraphiteResonanceSurface: UIView {
     private let halo = CAShapeLayer()
     private let haloTracer = CAShapeLayer()
     private var haloLength: CGFloat = 1
+    private let starfield = CALayer()
+    private var satellites: [CAShapeLayer] = []
     private let ribbon = CALayer()
     private let aura = CAShapeLayer()
     private let underside = CAShapeLayer()
@@ -64,11 +63,14 @@ final class GraphiteResonanceSurface: UIView {
     private let ribbonWidth: CGFloat = 188
     private let ribbonHeight: CGFloat = 112
     private var contourLength: CGFloat = 1
+    private var contourOffset: CGFloat = 0
+    private var ovalOffset: CGFloat = 0
     private var previousSize = CGSize.zero
     private var currentPhase: LabResonancePhase = .idle
     private var configuredPhase: LabResonancePhase?
     private var motionEnabled = false
     private var reducedMotion = false
+    private var applicationActive = UIApplication.shared.applicationState != .background
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -77,13 +79,17 @@ final class GraphiteResonanceSurface: UIView {
         clipsToBounds = false
         layer.masksToBounds = false
 
+        NotificationCenter.default.addObserver(self, selector: #selector(suspendMotion),
+            name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(resumeMotion),
+            name: UIApplication.didBecomeActiveNotification, object: nil)
         artwork.masksToBounds = false
         layer.addSublayer(artwork)
         graphiteDepth.contents = Self.softRadialImage(
             color: UIColor(red: 0.42, green: 0.45, blue: 0.51, alpha: 1))
         graphiteDepth.contentsGravity = .resize
         graphiteDepth.contentsScale = 1
-        graphiteDepth.opacity = 0.38
+        graphiteDepth.opacity = 0.14
         artwork.addSublayer(graphiteDepth)
         let cloudConfigurations: [(holder: CALayer, light: CALayer, color: UIColor)] = [
             (leftDrift, cloudLeft, UIColor(red: 0.4118, green: 0.4431, blue: 0.5059, alpha: 1)), // #697181
@@ -111,7 +117,7 @@ final class GraphiteResonanceSurface: UIView {
 
         setupStroke(halo, color: UIColor(red: 0.7843, green: 0.7961, blue: 0.8431, alpha: 1),
                     width: 0.75)
-        // Unlike 0.4.2, the oval must remain visible and gently breathe in idle.
+        // The orbital horizon remains visible while waiting.
         halo.opacity = 0.19
         artwork.addSublayer(halo)
         setupStroke(haloTracer, color: UIColor(white: 0.96, alpha: 1), width: 1.35)
@@ -119,6 +125,14 @@ final class GraphiteResonanceSurface: UIView {
         haloTracer.lineCap = .round
         artwork.addSublayer(haloTracer)
 
+        artwork.addSublayer(starfield)
+        for index in 0..<18 {
+            let star = CAShapeLayer()
+            star.fillColor = UIColor(white: index % 3 == 0 ? 0.92 : 0.65, alpha: 1).cgColor
+            star.opacity = index % 3 == 0 ? 0.42 : 0.20
+            starfield.addSublayer(star)
+            satellites.append(star)
+        }
         ribbon.masksToBounds = false
         artwork.addSublayer(ribbon)
         setupStroke(aura, color: UIColor(red: 0.7843, green: 0.7961, blue: 0.8431, alpha: 1),
@@ -158,13 +172,29 @@ final class GraphiteResonanceSurface: UIView {
         lightTail.opacity = 0
     }
 
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func suspendMotion() {
+        applicationActive = false
+        configureMotion(force: true)
+    }
+
+    @objc private func resumeMotion() {
+        applicationActive = true
+        // iOS can discard compositor animations while the view remains attached.
+        // Rebuild explicitly; a SwiftUI update or layout is not guaranteed on return.
+        layer.speed = 1
+        layer.timeOffset = 0
+        layer.beginTime = 0
+        configureMotion(force: true)
+    }
+
     required init?(coder: NSCoder) {
         fatalError("GraphiteResonanceSurface is code-only")
     }
 
     private static func softRadialImage(color: UIColor) -> CGImage? {
-        // The accepted CSS used radial-gradient(..., transparent 69%) and
-        // filter:blur(38px). Pre-baking feathered falloff eliminates GPU blur.
+        // Pre-baking feathered falloff avoids live blur and offscreen render passes.
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
@@ -210,23 +240,28 @@ final class GraphiteResonanceSurface: UIView {
         artwork.frame = bounds
         graphiteDepth.frame = CGRect(x: size.width * 0.035, y: size.height * 0.025,
                                      width: size.width * 0.93, height: size.height * 0.93)
-        // Percentages are DIRECTLY from CONCEPT 03's Graphite stage:
-        // clouds: a[-14%,4%,62%,73%], b[49%,2%,69%,77%],
-        // c[18%,52%,67%,61%], d[27%,23%,45%,48%].
-        for holder in [leftDrift, rightDrift, bottomDrift, centerDrift] {
-            holder.frame = bounds
+        // Thin dust lanes create depth without large opaque spots behind the glyph.
+        for holder in [leftDrift, rightDrift, bottomDrift, centerDrift] { holder.frame = bounds }
+        cloudLeft.frame = CGRect(x: size.width * 0.08, y: size.height * 0.44,
+                                 width: size.width * 0.48, height: size.height * 0.065)
+        cloudRight.frame = CGRect(x: size.width * 0.49, y: size.height * 0.49,
+                                  width: size.width * 0.43, height: size.height * 0.045)
+        cloudBottom.frame = CGRect(x: size.width * 0.23, y: size.height * 0.66,
+                                   width: size.width * 0.54, height: size.height * 0.035)
+        cloudCenter.frame = CGRect(x: size.width * 0.33, y: size.height * 0.29,
+                                   width: size.width * 0.38, height: size.height * 0.025)
+        bloom.frame = CGRect(x: size.width * 0.29, y: size.height * 0.30,
+                             width: size.width * 0.42, height: size.height * 0.35)
+        starfield.frame = bounds
+        for (index, star) in satellites.enumerated() {
+            let angle = CGFloat(index) * 2.399963
+            let radius = CGFloat(0.68 + Double(index % 5) * 0.07)
+            let point = CGPoint(x: size.width * 0.5 + cos(angle) * size.width * 0.39 * radius,
+                                y: size.height * 0.48 + sin(angle) * size.height * 0.38 * radius)
+            let diameter: CGFloat = index % 4 == 0 ? 1.6 : 0.85
+            star.path = UIBezierPath(ovalIn: CGRect(x: point.x, y: point.y,
+                                                  width: diameter, height: diameter)).cgPath
         }
-        cloudLeft.frame = CGRect(x: -0.14 * size.width, y: 0.04 * size.height,
-                                 width: 0.62 * size.width, height: 0.73 * size.height)
-        cloudRight.frame = CGRect(x: 0.49 * size.width, y: 0.02 * size.height,
-                                  width: 0.69 * size.width, height: 0.77 * size.height)
-        cloudBottom.frame = CGRect(x: 0.18 * size.width, y: 0.52 * size.height,
-                                   width: 0.67 * size.width, height: 0.61 * size.height)
-        cloudCenter.frame = CGRect(x: 0.27 * size.width, y: 0.23 * size.height,
-                                   width: 0.45 * size.width, height: 0.48 * size.height)
-
-        bloom.frame = CGRect(x: size.width * 0.16, y: size.height * 0.16,
-                             width: size.width * 0.68, height: size.height * 0.65)
         let oval = UIBezierPath(ovalIn: CGRect(
             x: size.width * 0.175, y: size.height * 0.21,
             width: size.width * 0.65, height: size.height * 0.48)).cgPath
@@ -325,16 +360,26 @@ final class GraphiteResonanceSurface: UIView {
     }
 
     private func configureMotion(force: Bool = false) {
-        let enabled = window != nil && !reducedMotion
+        let enabled = window != nil && applicationActive && !reducedMotion
         guard force || enabled != motionEnabled || configuredPhase != currentPhase else { return }
         motionEnabled = enabled
         configuredPhase = currentPhase
 
+        contourOffset = glint.presentation()?.lineDashPhase ?? contourOffset
+        ovalOffset = haloTracer.presentation()?.lineDashPhase ?? ovalOffset
         [leftDrift, rightDrift, bottomDrift, centerDrift].forEach { $0.removeAllAnimations() }
-        [halo, haloTracer, glint, lightTail].forEach { $0.removeAllAnimations() }
+        [halo, haloTracer, glint, lightTail, starfield].forEach { $0.removeAllAnimations() }
 
         guard enabled else { return }
-        // Slow drifts directly follow the CSS 12/14/17/9-second ambient field.
+        let style = currentPhase.style
+        let orbit = CABasicAnimation(keyPath: "transform.rotation.z")
+        orbit.fromValue = 0
+        orbit.toValue = currentPhase == .output ? -Double.pi * 2 : Double.pi * 2
+        orbit.duration = abs(style.lap) * 8
+        orbit.repeatCount = .infinity
+        orbit.timingFunction = CAMediaTimingFunction(name: .linear)
+        starfield.add(orbit, forKey: "siderealOrbit")
+        // Independent slow drift keeps the narrow dust lanes from moving as one sheet.
         animateDrift(leftDrift, dx: 19, dy: 7, seconds: 12)
         animateDrift(rightDrift, dx: -16, dy: 12, seconds: 14)
         animateDrift(bottomDrift, dx: 11, dy: -13, seconds: 17)
@@ -346,7 +391,7 @@ final class GraphiteResonanceSurface: UIView {
         let ovalBreath = CABasicAnimation(keyPath: "transform.scale")
         ovalBreath.fromValue = 0.985
         ovalBreath.toValue = 1.035
-        ovalBreath.duration = currentPhase == .input ? 2.1 : 3.4
+        ovalBreath.duration = style.breath
         ovalBreath.autoreverses = true
         ovalBreath.repeatCount = .infinity
         ovalBreath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -359,10 +404,9 @@ final class GraphiteResonanceSurface: UIView {
             NSNumber(value: Double(haloLength * 0.925))
         ]
         let ovalOrbit = CABasicAnimation(keyPath: "lineDashPhase")
-        ovalOrbit.fromValue = 0
-        ovalOrbit.toValue = -haloLength
-        ovalOrbit.duration = currentPhase == .input ? 4.2 :
-            currentPhase == .output ? 5.0 : 10.0
+        ovalOrbit.fromValue = ovalOffset
+        ovalOrbit.toValue = ovalOffset + (style.lap < 0 ? haloLength : -haloLength)
+        ovalOrbit.duration = abs(style.lap)
         ovalOrbit.repeatCount = .infinity
         ovalOrbit.timingFunction = CAMediaTimingFunction(name: .linear)
         haloTracer.add(ovalOrbit, forKey: "ovalLightOrbit")
@@ -374,17 +418,15 @@ final class GraphiteResonanceSurface: UIView {
                                  NSNumber(value: Double(contourLength - segment))]
         lightTail.lineDashPattern = [NSNumber(value: Double(segment * 2.1)),
                                      NSNumber(value: Double(contourLength - segment * 2.1))]
-        if currentPhase == .input || currentPhase == .output {
-            animateLight(glint, lap: 4.0)
-            animateLight(lightTail, lap: 4.0)
-        }
+        animateLight(glint, lap: style.lap)
+        animateLight(lightTail, lap: style.lap)
     }
 
     private func animateLight(_ shape: CAShapeLayer, lap: CFTimeInterval) {
         let animation = CABasicAnimation(keyPath: "lineDashPhase")
-        animation.fromValue = 0
-        animation.toValue = -contourLength
-        animation.duration = lap
+        animation.fromValue = contourOffset
+        animation.toValue = contourOffset + (lap < 0 ? contourLength : -contourLength)
+        animation.duration = abs(lap)
         animation.repeatCount = .infinity
         animation.timingFunction = CAMediaTimingFunction(name: .linear)
         shape.add(animation, forKey: "contourLight")
@@ -405,6 +447,7 @@ final class GraphiteResonanceSurface: UIView {
 
     func update(phase: LabResonancePhase, bands: LabAudioBands,
                 orbitActive: Bool, reduceMotion: Bool) {
+        let phaseChanged = currentPhase != phase
         reducedMotion = reduceMotion
         currentPhase = phase
         configureMotion()
@@ -416,36 +459,37 @@ final class GraphiteResonanceSurface: UIView {
         let energy = max(bass, max(mids, highs))
 
         CATransaction.begin()
-        CATransaction.setAnimationDuration(0.10)
+        CATransaction.setAnimationDuration(phaseChanged ? 0.65 : 0.16)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
 
-        // Cloud opacity + scale follow real timbre, not a random animation.
-        // Match JS: idle .395/.362; active .23 + .5*voice, center .23 + .4*voice.
-        cloudLeft.opacity = Float(0.23 + 0.50 * (active ? bass : 0.33))
-        cloudRight.opacity = Float(0.23 + 0.50 * (active ? mids : 0.33))
-        cloudBottom.opacity = Float(0.23 + 0.50 * (active ? highs : 0.33))
-        cloudCenter.opacity = Float(0.23 + 0.40 * (active ? energy : 0.33))
+        let style = phase.style
+        // Dust lane opacity + scale follow real timbre, not a random animation.
+
+        cloudLeft.opacity = Float(0.035 + 0.14 * (active ? bass : 0.33))
+        cloudRight.opacity = Float(0.035 + 0.14 * (active ? mids : 0.33))
+        cloudBottom.opacity = Float(0.035 + 0.14 * (active ? highs : 0.33))
+        cloudCenter.opacity = Float(0.025 + 0.12 * (active ? energy : 0.33))
         cloudLeft.transform = CATransform3DMakeScale(CGFloat(1 + 0.58 * bass), CGFloat(1 + 0.58 * bass), 1)
         cloudRight.transform = CATransform3DMakeScale(CGFloat(1 + 0.47 * mids), CGFloat(1 + 0.47 * mids), 1)
         cloudBottom.transform = CATransform3DMakeScale(CGFloat(1 + 0.50 * highs), CGFloat(1 + 0.50 * highs), 1)
         cloudCenter.transform = CATransform3DMakeScale(CGFloat(1 + 0.72 * energy), CGFloat(1 + 0.72 * energy), 1)
         // Prevent the broad center blob that obscured the graphite fog.
         // Keep the Expressive response in the actual clouds and ∞ ribbon.
-        bloom.opacity = Float(active ? (0.05 + 0.22 * energy) : 0.045)
+        bloom.opacity = Float(0.018 + 0.045 * energy)
         bloom.transform = CATransform3DMakeScale(CGFloat(0.82 + 0.14 * energy),
                                                 CGFloat(0.82 + 0.14 * energy), 1)
 
         // Thin animated ellipse is always visible; voice increases its contrast.
-        halo.opacity = active ? Float(0.23 + 0.43 * mids) : 0.19
-        haloTracer.opacity = active ? Float(0.55 + 0.33 * highs) : 0.38
+        halo.opacity = style.halo + Float(0.12 * mids)
+        haloTracer.opacity = style.light * 0.65 + Float(0.15 * highs)
         // Original CSS: audio bass expands X, mid range expands Y.
         ribbon.transform = CATransform3DMakeScale(CGFloat(1 + bass * 0.085),
                                                   CGFloat(1 + mids * 0.060), 1)
-        aura.opacity = Float(0.14 + 0.49 * energy)
+        aura.opacity = Float(0.06 + 0.20 * energy)
         aura.lineWidth = 17 + CGFloat(bass * 10)
         // A clearly visible moving white bar must not disappear on quiet syllables.
-        glint.opacity = active ? Float(0.82 + 0.18 * highs) : 0
-        lightTail.opacity = active ? Float(0.29 + 0.25 * mids) : 0
+        glint.opacity = style.light + Float(0.06 * highs)
+        lightTail.opacity = Float(style.tail) + Float(0.10 * mids)
         let fade: Float = orbitActive ? 0.08 : 1
         artwork.opacity = fade
         CATransaction.commit()

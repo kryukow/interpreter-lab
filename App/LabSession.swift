@@ -153,6 +153,9 @@ import SwiftUI
     func loadElevenVoices() async throws {
         guard let key = try LabElevenKeychain.load() else { throw LabElevenAPI.Error.noKey }
         elevenVoices = try await LabElevenAPI.voices(apiKey: key)
+        var names = UserDefaults.standard.dictionary(forKey: "lab.elevenVoiceNames") as? [String: String] ?? [:]
+        for voice in elevenVoices { names[voice.voiceID] = voice.name }
+        UserDefaults.standard.set(names, forKey: "lab.elevenVoiceNames")
     }
 
     /// Browsing and listening to public demos is read-only and does not call
@@ -175,6 +178,9 @@ import SwiftUI
             throw LabElevenCatalogAPI.CatalogError.missingKey
         }
         let newID = try await LabElevenCatalogAPI.addToAccount(apiKey: key, voice: voice)
+        var names = UserDefaults.standard.dictionary(forKey: "lab.elevenVoiceNames") as? [String: String] ?? [:]
+        names[newID] = voice.name
+        UserDefaults.standard.set(names, forKey: "lab.elevenVoiceNames")
         if language == "ru" {
             elevenRussianVoice = newID
         } else if partner.rawValue == language {

@@ -36,18 +36,18 @@ struct LabSharedVoice: Decodable, Identifiable, Hashable {
     /// demo, which could be spoken in English even for a multilingual voice.
     func preview(for languageCode: String) -> URL? {
         let matching = verifiedLanguages?.first {
-            $0.language?.lowercased() == languageCode.lowercased()
-                && $0.previewURL != nil
+            LabVoiceLanguage.matches($0.language, languageCode) && LabVoiceLanguage.secureURL($0.previewURL) != nil
         }?.previewURL
-        guard let string = matching ?? previewURL,
-              let url = URL(string: string), url.scheme == "https" else { return nil }
-        return url
+        return LabVoiceLanguage.secureURL(matching) ?? LabVoiceLanguage.secureURL(previewURL)
     }
 
     func sampleIsInLanguage(_ code: String) -> Bool {
-        verifiedLanguages?.contains {
-            $0.language?.lowercased() == code.lowercased() && $0.previewURL != nil
-        } == true || language?.lowercased() == code.lowercased()
+        if verifiedLanguages?.contains(where: {
+            LabVoiceLanguage.matches($0.language, code) && LabVoiceLanguage.secureURL($0.previewURL) != nil
+        }) == true { return true }
+        // A general recording cannot be labelled as the requested language
+        // merely because the voice itself supports that language.
+        return verifiedLanguages?.isEmpty != false && LabVoiceLanguage.matches(language, code)
     }
 }
 
@@ -69,14 +69,15 @@ enum LabElevenCatalogAPI {
             case .missingKey: return "Сначала сохрани ключ ElevenLabs в настройках."
             case .invalidSelection: return "Недопустимый идентификатор голоса."
             case .badResponse: return "ElevenLabs вернул неожиданный ответ каталога."
-            case .http(let code, let text): return "ElevenLabs HTTP \\(code): \\(text)"
+            case .http(let code, let text): return "ElevenLabs HTTP \(code): \(text)"
             }
         }
     }
 
     static let languages: [(code: String, name: String)] = [
         ("ru", "Русский"), ("de", "Deutsch"),
-        ("en", "English"), ("es", "Español")
+        ("en", "English"), ("es", "Español"),
+        ("pl", "Polski"), ("ro", "Română")
     ]
 
     static func browse(apiKey: String, language: String, search: String = "",
@@ -117,7 +118,7 @@ enum LabElevenCatalogAPI {
         guard validPathID(voice.publicOwnerID), validPathID(voice.voiceID) else {
             throw CatalogError.invalidSelection
         }
-        let url = URL(string: "https://api.elevenlabs.io/v1/voices/add/\\(voice.publicOwnerID)/\\(voice.voiceID)")!
+        let url = URL(string: "https://api.elevenlabs.io/v1/voices/add/\(voice.publicOwnerID)/\(voice.voiceID)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
@@ -151,5 +152,21 @@ enum LabElevenCatalogAPI {
             }
             throw CatalogError.http(http.statusCode, String(detail.prefix(200)))
         }
+    }
+}
+
+
+/// Provider payloads can use ISO codes, locale codes, or full language names.
+enum LabVoiceLanguage {
+    static func matches(_ value: String?, _ code: String) -> Bool {
+        guard let value else { return false }
+        let normalized = value.lowercased().replacingOccurrences(of: "_", with: "-")
+        let names = ["english": "en", "spanish": "es", "polish": "pl", "russian": "ru", "german": "de", "romanian": "ro"]
+        return (names[normalized] ?? String(normalized.split(separator: "-").first ?? "")) == code.lowercased()
+    }
+    static func secureURL(_ value: String?) -> URL? {
+        guard let value, let url = URL(string: value), url.scheme?.lowercased() == "https",
+              url.host != nil, url.user == nil, url.password == nil else { return nil }
+        return url
     }
 }
