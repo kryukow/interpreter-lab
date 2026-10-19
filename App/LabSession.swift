@@ -155,6 +155,38 @@ import SwiftUI
         elevenVoices = try await LabElevenAPI.voices(apiKey: key)
     }
 
+    /// Browsing and listening to public demos is read-only and does not call
+    /// the billed Text-to-Speech endpoint.
+    func browseElevenLibrary(language: String, search: String, page: Int) async throws -> LabSharedVoicePage {
+        guard let key = try LabElevenKeychain.load() else {
+            throw LabElevenCatalogAPI.CatalogError.missingKey
+        }
+        return try await LabElevenCatalogAPI.browse(
+            apiKey: key, language: language, search: search, page: page)
+    }
+
+    /// Importing is separate from preview. ElevenLabs may require Voices Write
+    /// or a paid subscription for specific community voices.
+    func importElevenVoice(_ voice: LabSharedVoice, for language: String) async throws {
+        guard LabElevenCatalogAPI.languages.contains(where: { $0.code == language }) else {
+            throw LabElevenCatalogAPI.CatalogError.invalidSelection
+        }
+        guard let key = try LabElevenKeychain.load() else {
+            throw LabElevenCatalogAPI.CatalogError.missingKey
+        }
+        let newID = try await LabElevenCatalogAPI.addToAccount(apiKey: key, voice: voice)
+        if language == "ru" {
+            elevenRussianVoice = newID
+        } else if partner.rawValue == language {
+            elevenPartnerVoice = newID
+        } else {
+            UserDefaults.standard.set(newID, forKey: "lab.elevenVoice.\(language)")
+        }
+        clearCachedEleven()
+        // Ensure newly imported voices are selectable in ordinary Settings.
+        try? await loadElevenVoices()
+    }
+
     func voices(for language: String) -> [AVSpeechSynthesisVoice] {
         AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language.lowercased().hasPrefix(language) }
