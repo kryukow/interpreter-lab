@@ -49,7 +49,12 @@ struct LabTranscriptAssembler {
     private func resemblesRollback(previous: String, incoming: String) -> Bool {
         let old = normalized(previous)
         let next = normalized(incoming)
-        return old.count > next.count + 15 && next.count >= 6 && old.hasPrefix(next)
+        // Apple can revise the middle of a previously long utterance while
+        // rebuilding a fresh short hypothesis. Preserve its longer version
+        // until the revised one is substantial again.
+        let beginsSimilarly = words(old).prefix(3) == words(next).prefix(3)
+        return old.count > next.count + 15 && next.count >= 6
+            && (old.hasPrefix(next) || (beginsSimilarly && next.count * 1.4 < old.count))
     }
 
     private func looksLikeNewSegment(previous: String, incoming: String) -> Bool {
