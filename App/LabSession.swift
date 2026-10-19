@@ -12,8 +12,15 @@ import SwiftUI
     @Published private(set) var translation = ""
     @Published private(set) var language = "ru"
     @Published private(set) var partner = PartnerLanguage.current(UserDefaults.standard.string(forKey: "lab.partnerLanguage") ?? "de")
-    @Published private(set) var levels = Array(repeating: 0.0, count: 40)
-    @Published private(set) var visualBands: LabAudioBands = .silence
+    let visualSignal = LabVisualSignal()
+    private(set) var levels: [Double] {
+        get { visualSignal.levels }
+        set { visualSignal.levels = newValue }
+    }
+    private(set) var visualBands: LabAudioBands {
+        get { visualSignal.bands }
+        set { visualSignal.bands = newValue }
+    }
     @Published private(set) var elapsed = 0.0
     @Published private(set) var detail = ""
     @Published private(set) var keySaved = false
@@ -157,7 +164,8 @@ import SwiftUI
                         self.levels.removeFirst()
                         self.levels.append(value)
                         self.visualBands = self.pendingMicrophoneBands
-                        self.elapsed = Date().timeIntervalSince(self.recordingStarted)
+                        let elapsed = Date().timeIntervalSince(self.recordingStarted)
+                        if elapsed - self.elapsed >= 0.2 { self.elapsed = elapsed }
                     },
                     onBands: { [weak self] bands in
                         guard let self, self.generation == token && self.phase == .recording else { return }
@@ -320,7 +328,24 @@ import SwiftUI
                         try? FileManager.default.removeItem(at: url)
                         return
                     }
-                    spectrum = try LabPlaybackSpectrum(url: url)
+                    // Full-file DSP must not block touch handling or layer updates.
+                    let analysis = Task.detached(priority: .userInitiated) {
+                        try LabPlaybackSpectrum(url: url)
+                    }
+                    do {
+                        spectrum = try await withTaskCancellationHandler {
+                            try await analysis.value
+                        } onCancel: {
+                            analysis.cancel()
+                        }
+                    } catch {
+                        try? FileManager.default.removeItem(at: url)
+                        throw error
+                    }
+                    guard self.generation == token && !Task.isCancelled else {
+                        try? FileManager.default.removeItem(at: url)
+                        return
+                    }
                     self.clearCachedSpeech()
                     self.cachedSpeech = (text, voice.identifier, url, spectrum)
                 }

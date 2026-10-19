@@ -60,6 +60,10 @@ jobs:
         run: |
           swiftc App/LabAudioBands.swift Tests/AudioBandsTests.swift -o "$RUNNER_TEMP/lab-bands-tests"
           "$RUNNER_TEMP/lab-bands-tests"
+      - name: Test phase motion contracts
+        run: |
+          swiftc App/LabResonanceStyle.swift Tests/ResonanceStyleTests.swift -o "$RUNNER_TEMP/lab-style-tests"
+          "$RUNNER_TEMP/lab-style-tests"
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Verify byte-identical Live visual assets
@@ -72,17 +76,23 @@ jobs:
           from pathlib import Path
           ui = Path("App/InterpreterLabApp.swift").read_text()
           assert "PressButton(title: title" in ui
-          assert "LabGraphiteResonance(" in ui
-          assert "bands: model.visualBands" in ui
-          assert "MicrophoneWaveform(levels: model.levels, recording: model.phase == .recording || model.phase == .playing)" in ui
+          assert "LabGraphiteSignalView(" in ui
+          assert "signal: model.visualSignal" in ui
+          assert "LabWaveformSignalView(signal: model.visualSignal, recording: model.phase == .recording || model.phase == .playing)" in ui
           resonance = Path("App/LabGraphiteResonance.swift").read_text()
           assert "UIViewRepresentable" in resonance
-          assert "CAGradientLayer" in resonance and "CABasicAnimation" in resonance
+          assert "UIGraphicsImageRenderer" in resonance and "CABasicAnimation" in resonance
           assert "ribbonWidth: CGFloat = 188" in resonance
-          assert "ribbonHeight: CGFloat = 108" in resonance
+          assert "ribbonHeight: CGFloat = 112" in resonance
           assert "TimelineView(" not in resonance and "Canvas(" not in resonance
           assert ".blur(" not in resonance
           assert "GraphiteResonanceSurface" in resonance
+          assert "makeConcept03InfinityPath" in resonance
+          assert "controlPoint1: p(162, 99), controlPoint2: p(145, 82)" in resonance
+          assert "size.width * 0.65, height: size.height * 0.48" in resonance
+          assert "animateLight(glint, lap: 4.0)" in resonance
+          assert "cloudLeft.transform" in resonance
+          assert "softRadialImage" in resonance
           audio = Path("App/LabSpeechExporter.swift").read_text()
           assert "synth.write(utterance)" in audio
           assert "LabPlaybackSpectrum" in audio
@@ -122,18 +132,33 @@ jobs:
           app = Path(os.environ["RUNNER_TEMP"]) / "LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app"
           info = plistlib.loads((app / "Info.plist").read_bytes())
           assert info["CFBundleIdentifier"] == "org.interpreter.lab"
-          assert info["CFBundleShortVersionString"] == "0.4.1"
+          assert info["CFBundleShortVersionString"] == "0.4.2"
           assert info["NSMicrophoneUsageDescription"]
           assert info["NSSpeechRecognitionUsageDescription"]
           print("Verified Interpreter Lab iOS .app bundle")
           PY
           mkdir -p "$RUNNER_TEMP/lab-package/Payload"
           cp -R "$RUNNER_TEMP/LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app" "$RUNNER_TEMP/lab-package/Payload/"
-          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.4.1-Unsigned.ipa" Payload)
-          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.4.1-Unsigned.ipa"
+          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.4.2-Unsigned.ipa" Payload)
+          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.4.2-Unsigned.ipa"
       - uses: actions/upload-artifact@v4
         with:
-          name: Interpreter-Lab-0.4.1-Unsigned-iPhone
-          path: ${{ runner.temp }}/Interpreter-Lab-0.4.1-Unsigned.ipa
+          name: Interpreter-Lab-0.4.2-Unsigned-iPhone
+          path: ${{ runner.temp }}/Interpreter-Lab-0.4.2-Unsigned.ipa
           if-no-files-found: error
           retention-days: 7
+      - name: Run renderer in iOS Simulator
+        timeout-minutes: 10
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
+          xcodebuild -project InterpreterLab.xcodeproj -scheme InterpreterLab \
+            -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" \
+            -derivedDataPath "$RUNNER_TEMP/LabSimulator" \
+            -resultBundlePath "$RUNNER_TEMP/GraphiteRenderer.xcresult" \
+            CODE_SIGNING_ALLOWED=NO test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Graphite-Renderer-Test-Results
+          path: ${{ runner.temp }}/GraphiteRenderer.xcresult
+          if-no-files-found: warn
