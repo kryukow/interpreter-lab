@@ -13,6 +13,7 @@ import Foundation
     private var download: Task<Void, Never>?
     private var generation = UUID()
     private var utterance: AVSpeechUtterance?
+    private var ownsAudioSession = false
 
     override init() {
         super.init()
@@ -38,6 +39,7 @@ import Foundation
         speaker.stopSpeaking(at: .immediate)
         activeID = nil
         isLoading = false
+        releaseAudio()
     }
 
     func playApple(voiceID: String, language: String) {
@@ -45,7 +47,10 @@ import Foundation
         if activeID == id { stop(); return }
         stop()
         errorMessage = nil
-        guard let voice = AVSpeechSynthesisVoice(identifier: voiceID) else {
+        let availableVoice = voiceID.isEmpty
+            ? AVSpeechSynthesisVoice(language: PartnerLanguage.voiceLocale(for: language))
+            : AVSpeechSynthesisVoice(identifier: voiceID)
+        guard let voice = availableVoice else {
             errorMessage = "Этот голос Apple больше недоступен. Обнови список голосов."
             return
         }
@@ -57,7 +62,10 @@ import Foundation
             utterance = sample
             activeID = id
             speaker.speak(sample)
-        } catch { errorMessage = "Не удалось включить пробу голоса: \(error.localizedDescription)" }
+        } catch {
+            releaseAudio()
+            errorMessage = "Не удалось включить пробу голоса: \(error.localizedDescription)"
+        }
     }
 
     func playRecorded(url: URL?, id: String) {
@@ -107,6 +115,13 @@ import Foundation
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playback, mode: .spokenAudio)
         try session.setActive(true)
+        ownsAudioSession = true
+    }
+
+    private func releaseAudio() {
+        guard ownsAudioSession else { return }
+        ownsAudioSession = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     static func sampleText(for language: String) -> String {
@@ -124,16 +139,19 @@ import Foundation
         guard self.utterance === utterance else { return }
         self.utterance = nil
         activeID = nil
+        releaseAudio()
     }
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         guard self.utterance === utterance else { return }
         self.utterance = nil
         activeID = nil
+        releaseAudio()
     }
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         guard self.player === player else { return }
         self.player = nil
         activeID = nil
+        releaseAudio()
         if !flag { errorMessage = "Не удалось воспроизвести пробу целиком." }
     }
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
