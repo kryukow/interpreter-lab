@@ -70,6 +70,30 @@ jobs:
           assert "inputTooLong" in translate
           print("Long speech rollover and preservation contracts passed")
           PY
+      - name: Validate ElevenLabs voice and billing boundaries
+        run: |
+          swiftc App/LabElevenAPI.swift Tests/ElevenAPITests.swift -o "$RUNNER_TEMP/eleven-tests"
+          "$RUNNER_TEMP/eleven-tests"
+          python3 - <<'PY'
+          from pathlib import Path
+          client = Path("App/LabElevenAPI.swift").read_text()
+          session = Path("App/LabSession.swift").read_text()
+          settings = Path("App/InterpreterLabApp.swift").read_text()
+          keychain = Path("App/LabElevenKeychain.swift").read_text()
+          assert "api.elevenlabs.io/v2/voices" in client
+          assert "api.elevenlabs.io/v1/text-to-speech/" in client
+          assert '"xi-api-key"' in client
+          assert '"eleven_flash_v2_5"' in client and '"eleven_multilingual_v2"' in client
+          assert "LabElevenKeychain.load()" in session
+          assert "cachedEleven" in session
+          assert "playRegularAppleVoice" in session
+          assert "elevenAutoGenerate" in session
+          assert 'speechEngine != "elevenlabs" || self.elevenAutoGenerate' in session
+          assert "Озвучить ElevenLabs · расход кредитов" in session
+          assert "SecItemAdd" in keychain and "WhenUnlockedThisDeviceOnly" in keychain
+          assert "elevenKeyInput" in settings and "SecureField(" in settings
+          print("ElevenLabs BYOK / no charges by default / Apple fallback verified")
+          PY
       - name: Test original Live language orbit bindings
         run: |
           swiftc App/PartnerLanguage.swift App/LabLanguageBridge.swift Tests/LanguageTests.swift -o "$RUNNER_TEMP/lab-language-tests"
@@ -155,19 +179,19 @@ jobs:
           app = Path(os.environ["RUNNER_TEMP"]) / "LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app"
           info = plistlib.loads((app / "Info.plist").read_bytes())
           assert info["CFBundleIdentifier"] == "org.interpreter.lab"
-          assert info["CFBundleShortVersionString"] == "0.4.4"
+          assert info["CFBundleShortVersionString"] == "0.5.0"
           assert info["NSMicrophoneUsageDescription"]
           assert info["NSSpeechRecognitionUsageDescription"]
           print("Verified Interpreter Lab iOS .app bundle")
           PY
           mkdir -p "$RUNNER_TEMP/lab-package/Payload"
           cp -R "$RUNNER_TEMP/LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app" "$RUNNER_TEMP/lab-package/Payload/"
-          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.4.4-Unsigned.ipa" Payload)
-          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.4.4-Unsigned.ipa"
+          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.5.0-Unsigned.ipa" Payload)
+          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.5.0-Unsigned.ipa"
       - uses: actions/upload-artifact@v4
         with:
-          name: Interpreter-Lab-0.4.4-Unsigned-iPhone
-          path: ${{ runner.temp }}/Interpreter-Lab-0.4.4-Unsigned.ipa
+          name: Interpreter-Lab-0.5.0-Unsigned-iPhone
+          path: ${{ runner.temp }}/Interpreter-Lab-0.5.0-Unsigned.ipa
           if-no-files-found: error
           retention-days: 7
       - name: Run renderer in iOS Simulator
