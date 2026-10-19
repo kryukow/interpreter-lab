@@ -84,10 +84,9 @@ struct LabTranscriptAssembler {
             if Array(oldWords.suffix(overlap)) == Array(newWords.prefix(overlap)) {
                 // Preserve original capitalization/punctuation of incoming
                 // after dropping repeated *whole* words.
-                let matches = candidate.matches(of: /\S+/)
-                if overlap < matches.count {
-                    let index = matches[overlap].range.lowerBound
-                    return String(candidate[index...])
+                let originalWords = candidate.split(whereSeparator: { $0.isWhitespace })
+                if overlap < originalWords.count {
+                    return originalWords.dropFirst(overlap).joined(separator: " ")
                 }
                 return ""
             }
