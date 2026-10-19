@@ -81,7 +81,7 @@ final class PressButtonTests: XCTestCase {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let snapshot = UIGraphicsImageRenderer(size: button.bounds.size, format: format).image { context in
-            button.layer.render(in: context.cgContext)
+            button.drawHierarchy(in: button.bounds, afterScreenUpdates: true)
         }
         let attachment = XCTAttachment(image: snapshot)
         attachment.name = "Graphite recording button — visible mic and label"

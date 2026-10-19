@@ -114,7 +114,7 @@ struct LabLiveTextView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+        let view = LabFollowingTextView(usingTextLayoutManager: false)
         view.backgroundColor = .clear
         view.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         view.textColor = UIColor(white: 0.83, alpha: 1)
@@ -138,25 +138,69 @@ struct LabLiveTextView: UIViewRepresentable {
             if view.isFirstResponder { view.selectedRange = NSRange(location: min(selection.location, (text as NSString).length), length: 0) }
         }
         view.isEditable = editable
-        if followTail && (changed || resumed) && !view.isFirstResponder {
-            // Layout before scrolling is essential for long partial ASR results.
-            view.layoutManager.ensureLayout(for: view.textContainer)
-            view.layoutIfNeeded()
-            view.scrollRangeToVisible(NSRange(location: (text as NSString).length, length: 0))
+        if let following = view as? LabFollowingTextView {
+            following.followsTail = followTail
+            if changed || resumed || !followTail {
+                context.coordinator.scheduleFollow(following)
+            }
         }
     }
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: LabLiveTextView
         var lastFollow = true
+        private var pendingFollow: DispatchWorkItem?
         init(_ parent: LabLiveTextView) { self.parent = parent }
+        deinit { pendingFollow?.cancel() }
+        func scheduleFollow(_ view: LabFollowingTextView) {
+            pendingFollow?.cancel()
+            pendingFollow = nil
+            guard parent.followTail, !view.isFirstResponder else { return }
+            view.setNeedsLayout()
+            // SwiftUI can assign the final width after updateUIView. Complete
+            // text layout on the next main pass rather than scroll an estimate.
+            let work = DispatchWorkItem { [weak self, weak view] in
+                guard let self, let view, self.parent.followTail,
+                      view.followsTail, !view.isFirstResponder else { return }
+                view.setNeedsLayout()
+                view.layoutIfNeeded()
+            }
+            pendingFollow = work
+            DispatchQueue.main.async(execute: work)
+        }
         func textViewDidChange(_ textView: UITextView) { parent.text = textView.text }
-        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { parent.followTail = false }
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            pendingFollow?.cancel()
+            pendingFollow = nil
+            (scrollView as? LabFollowingTextView)?.followsTail = false
+            parent.followTail = false
+        }
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
             if !decelerate { resumeIfAtBottom(scrollView) }
         }
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { resumeIfAtBottom(scrollView) }
         private func resumeIfAtBottom(_ view: UIScrollView) {
             if view.contentOffset.y + view.bounds.height >= view.contentSize.height - 24 { parent.followTail = true }
+        }
+    }
+}
+
+/// Tail following belongs to the completed UIKit layout, not the SwiftUI update
+/// that supplies new text. Repeated TextKit layout passes remain anchored while
+/// partial recognition grows; dragging disables anchoring synchronously.
+final class LabFollowingTextView: UITextView {
+    var followsTail = true
+    private var applyingTail = false
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard followsTail, !isFirstResponder, !isDragging, !isDecelerating,
+              !applyingTail, bounds.height > 0, bounds.width > 0 else { return }
+        applyingTail = true
+        defer { applyingTail = false }
+        layoutManager.ensureLayout(for: textContainer)
+        let bottom = max(-adjustedContentInset.top,
+                         contentSize.height - bounds.height + adjustedContentInset.bottom)
+        if abs(contentOffset.y - bottom) > 0.5 {
+            setContentOffset(CGPoint(x: contentOffset.x, y: bottom), animated: false)
         }
     }
 }
