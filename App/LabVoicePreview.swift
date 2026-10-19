@@ -43,7 +43,7 @@ import Foundation
     }
 
     func playApple(voiceID: String, language: String) {
-        let id = "apple:" + voiceID
+        let id = voiceID.isEmpty ? "apple:default:" + language : "apple:" + voiceID
         if activeID == id { stop(); return }
         stop()
         errorMessage = nil

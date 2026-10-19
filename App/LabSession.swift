@@ -282,7 +282,7 @@ import SwiftUI
                 }
                 self.recordingStarted = Date()
                 self.phase = .recording
-                self.message = "Говори → отпусти для перевода"
+                self.message = "Слушаю · отпусти для перевода"
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } catch {
                 guard self.generation == token else { return }
@@ -305,7 +305,7 @@ import SwiftUI
         elapsed = Date().timeIntervalSince(recordingStarted)
         phase = .recognizing
         visualBands = .silence
-        message = "Микрофон выключен · завершаю распознавание"
+        message = "Завершаю распознавание…"
         capture.finish()
     }
 
@@ -344,7 +344,7 @@ import SwiftUI
         clearCachedSpeech()
         clearCachedEleven()
         phase = .translating
-        message = "OpenAI · перевожу готовую фразу"
+        message = "Перевожу…"
         detail = "\(from == "ru" ? "Русский → \(partner.name)" : "\(partner.name) → Русский") · \(model) · \(selectedSource == "chatgpt" ? "ChatGPT" : "API")"
         operation = Task { [weak self] in
             guard let self else { return }
@@ -408,7 +408,7 @@ import SwiftUI
         // Exact rendered Apple speech PCM drives both the sound and the animation.
         // Keep the original speak() API as a safe fallback if offline rendering fails.
         phase = .preparingVoice
-        message = "Apple TTS · подготавливаю звук для визуализации"
+        message = "Подготавливаю голос…"
         let token = generation
         let text = translation
         operation?.cancel()
@@ -461,7 +461,7 @@ import SwiftUI
                 self.outputPlayer = player
                 self.outputSpectrum = spectrum
                 self.phase = .playing
-                self.message = "Звучит перевод · Graphite реагирует на Apple TTS"
+                self.message = "Звучит перевод"
                 self.startPlaybackMeter(token: token, player: player, spectrum: spectrum)
             } catch {
                 guard self.generation == token && !Task.isCancelled else { return }

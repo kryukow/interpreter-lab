@@ -85,7 +85,10 @@ struct LabVoiceLibrary: View {
             }.background(Color(red: 0.035, green: 0.039, blue: 0.047))
                 .navigationTitle("Голоса").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { dismiss() } } }
-                .task { language = model.partner.rawValue; refresh() }
+                .task {
+                    if language != model.partner.rawValue { language = model.partner.rawValue }
+                    else { refresh() }
+                }
                 .onChange(of: language) { _, _ in refresh() }
                 .onChange(of: scenePhase) { _, phase in if phase != .active { preview.stop() } }
                 .onDisappear { preview.stop(); requestID = UUID() }
