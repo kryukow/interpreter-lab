@@ -52,6 +52,24 @@ jobs:
           PY
           swiftc App/LabResponseStream.swift Tests/StreamTests.swift -o "$RUNNER_TEMP/lab-stream-tests"
           "$RUNNER_TEMP/lab-stream-tests"
+      - name: Test long dictation and partial-result accumulation
+        run: |
+          swiftc App/LabTranscriptAssembler.swift Tests/TranscriptAssemblerTests.swift -o "$RUNNER_TEMP/lab-dictation-tests"
+          "$RUNNER_TEMP/lab-dictation-tests"
+          python3 - <<'PY'
+          from pathlib import Path
+          capture = Path("App/LabSpeechCapture.swift").read_text()
+          assert "LabTranscriptAssembler" in capture
+          assert "beginRecognitionSegment(token: token)" in capture
+          assert "self.rotateSegment(token: token)" in capture
+          assert ".seconds(42)" in capture
+          assert ".seconds(55)" not in capture
+          assert "relay.send(buffer)" in capture
+          translate = Path("App/LabTranslator.swift").read_text()
+          assert "let bounded = input" in translate
+          assert "inputTooLong" in translate
+          print("Long speech rollover and preservation contracts passed")
+          PY
       - name: Test original Live language orbit bindings
         run: |
           swiftc App/PartnerLanguage.swift App/LabLanguageBridge.swift Tests/LanguageTests.swift -o "$RUNNER_TEMP/lab-language-tests"
