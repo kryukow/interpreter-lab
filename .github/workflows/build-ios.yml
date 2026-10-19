@@ -148,7 +148,7 @@ jobs:
           assert "if model.chatGPTAccount.isEmpty {" in settings
           assert ".navigationBarTitleDisplayMode(.inline)" in settings
           console = Path("App/LabTranscriptConsole.swift").read_text()
-          assert "scrollRangeToVisible" in console
+          assert "LabFollowingTextView" in console and "contentSize.height - bounds.height" in console
           assert "LabLiveTextView" in console
           print("Independent artwork, lifecycle and transcription UI checked")
           PY
