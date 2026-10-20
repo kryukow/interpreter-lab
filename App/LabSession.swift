@@ -542,7 +542,7 @@ import SwiftUI
                 player.isMeteringEnabled = true
                 player.delegate = self
                 guard player.prepareToPlay(), player.play() else {
-                    throw Failure.message("Не удалось воспроизвести MP3 \(provider).")
+                    throw Failure.message("Не удалось воспроизвести аудио \(provider).")
                 }
                 self.outputPlayer = player
                 self.phase = .playing
