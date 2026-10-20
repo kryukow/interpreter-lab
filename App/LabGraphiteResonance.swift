@@ -24,7 +24,19 @@ struct LabGraphiteResonance: UIViewRepresentable {
     }
 }
 
-/// Native port of the approved graphite-orb paintOrb. A capped display link lives
+enum LabSphereFramePolicy {
+    /// Request the display's native rate; conserve energy under system pressure.
+    static func requestedRate(screenMaximum: Int, lowPower: Bool,
+                              thermalState: ProcessInfo.ThermalState) -> Int {
+        let native = min(120, max(1, screenMaximum > 0 ? screenMaximum : 60))
+        if lowPower || thermalState == .serious || thermalState == .critical {
+            return min(30, native)
+        }
+        return native
+    }
+}
+
+/// Native port of the approved graphite-orb paintOrb. An adaptive display link lives
 /// entirely in this UIKit surface: no timers, published state or SwiftUI redraws.
 /// Its weak target prevents retention; offscreen/background/reduced motion stops it.
 final class GraphiteResonanceSurface: UIView {
@@ -45,6 +57,7 @@ final class GraphiteResonanceSurface: UIView {
     private var speed: CGFloat = 0.55
     private var direction: CGFloat = 1
     private var dimmed = false
+    private(set) var requestedFrameRate = 60
     private(set) var renderedFrames = 0
     var isAnimating: Bool { displayLink != nil }
     var sphereRadius: CGFloat { 61 * min(bounds.width / 395, bounds.height / 235) }
@@ -67,6 +80,8 @@ final class GraphiteResonanceSurface: UIView {
         tickTarget.surface = self
         NotificationCenter.default.addObserver(self, selector: #selector(suspend), name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resume), name: UIApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(systemPressureChanged), name: .NSProcessInfoPowerStateDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(systemPressureChanged), name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
     }
     required init?(coder: NSCoder) { fatalError("Code-only sphere") }
     deinit {
@@ -76,12 +91,21 @@ final class GraphiteResonanceSurface: UIView {
     override func didMoveToWindow() { super.didMoveToWindow(); configureMotion() }
     @objc private func suspend() { active = false; configureMotion() }
     @objc private func resume() { active = true; configureMotion() }
+    @objc private func systemPressureChanged() {
+        if Thread.isMainThread { configureMotion() }
+        else { DispatchQueue.main.async { [weak self] in self?.configureMotion() } }
+    }
     private func configureMotion() {
-        let enabled = window != nil && active && !reducedMotion
+        let rate = LabSphereFramePolicy.requestedRate(
+            screenMaximum: window?.screen.maximumFramesPerSecond ?? 60,
+            lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            thermalState: ProcessInfo.processInfo.thermalState)
+        if requestedFrameRate != rate { lastTimestamp = 0 }
+        requestedFrameRate = rate
+        let enabled = window != nil && active && !reducedMotion && !dimmed
         if enabled && displayLink == nil {
             lastTimestamp = 0
             let link = CADisplayLink(target: tickTarget, selector: #selector(TickTarget.tick(_:)))
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 24, maximum: 30, preferred: 30)
             link.add(to: .main, forMode: .common)
             displayLink = link
         } else if !enabled {
@@ -89,8 +113,10 @@ final class GraphiteResonanceSurface: UIView {
             displayLink = nil
             lastTimestamp = 0
         }
+        displayLink?.preferredFrameRateRange = CAFrameRateRange(
+            minimum: Float(min(60, rate)), maximum: Float(rate), preferred: Float(rate))
         // Audio updates may arrive between display ticks. The link exclusively
-        // owns invalidation while moving, preserving the 30 fps rendering cap.
+        // owns invalidation while moving. Sheets pause it to free the main thread.
         if displayLink == nil { setNeedsDisplay() }
     }
     func update(phase: LabResonancePhase, bands: LabAudioBands, orbitActive: Bool, reduceMotion: Bool) {
@@ -109,7 +135,7 @@ final class GraphiteResonanceSurface: UIView {
         configureMotion()
     }
     private func tick(_ link: CADisplayLink) {
-        let dt = CGFloat(lastTimestamp == 0 ? 1.0 / 30 : min(0.05, link.timestamp - lastTimestamp))
+        let dt = CGFloat(lastTimestamp == 0 ? 1.0 / Double(requestedFrameRate) : min(0.05, link.timestamp - lastTimestamp))
         lastTimestamp = link.timestamp
         let targetSpeed: CGFloat = phase == .idle ? 0.55 : phase == .input ? 1.4 : phase == .processing ? 2 : 1
         let blend = min(1, dt * 3)

@@ -125,7 +125,12 @@ jobs:
           resonance = Path("App/LabGraphiteResonance.swift").read_text()
           assert "UIViewRepresentable" in resonance
           assert "CADisplayLink" in resonance
-          assert "maximum: 30" in resonance
+          assert "maximumFramesPerSecond" in resonance
+          speech = Path("App/LabOpenAISpeech.swift").read_text()
+          assert '"gpt-realtime-2.1"' in speech and '"gpt-realtime-2.1-mini"' in speech
+          assert "wss://api.openai.com/v1/realtime" in speech
+          assert "response.output_audio.delta" in speech
+          assert "openAISpeechAutoGenerate" in Path("App/LabSession.swift").read_text()
           assert "targetEnergy" in resonance
           assert "UIApplication.didBecomeActiveNotification" in resonance
           assert "UIApplication.didEnterBackgroundNotification" in resonance
@@ -175,6 +180,7 @@ jobs:
           assert info["CFBundleIdentifier"] == "org.interpreter.lab"
           assert info["CFBundleShortVersionString"] == "0.7.0"
           assert info["CFBundleVersion"] == "16"
+          assert info["CADisableMinimumFrameDurationOnPhone"] is True
           assert info["NSMicrophoneUsageDescription"]
           assert info["NSSpeechRecognitionUsageDescription"]
           print("Verified Interpreter Lab iOS .app bundle")

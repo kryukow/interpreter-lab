@@ -81,8 +81,8 @@ struct LabSettings: View {
                         if !login.message.isEmpty { Text(login.message).font(.footnote) }
                     }
                 }
-                if model.authSource == "api" {
-                    LabSettingsCard(title: "OpenAI API", symbol: "key.horizontal", summary: model.keySaved ? "Ключ сохранён · \(model.modelID)" : "Ключ не добавлен") {
+                if model.authSource == "api" || model.speechEngine == "openai" {
+                    LabSettingsCard(title: "Ключ OpenAI API", symbol: "key.horizontal", summary: model.keySaved ? "Ключ сохранён · перевод и озвучивание API" : "Ключ не добавлен") {
                         Text(model.keySaved ? "Ключ сохранён в Keychain этого приложения" : "Добавь API-ключ для платного режима")
                             .font(.footnote)
                         SecureField("Вставь API-ключ", text: $key)
@@ -100,21 +100,24 @@ struct LabSettings: View {
                             Button("Удалить ключ", role: .destructive) { deleteKey = true }
                         }
                         Link("Создать ключ OpenAI", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                        if model.authSource == "api" {
                         LabGraphiteSelectionField(title: "Модель API", selection: $model.modelID, choices: [
                             LabGraphiteChoice(id: "gpt-4.1-mini", title: "GPT-4.1 mini", detail: "Компактная модель для перевода", symbol: "cpu"),
                             LabGraphiteChoice(id: "gpt-4.1", title: "GPT-4.1", detail: "Полная модель", symbol: "cpu")
                         ], note: "Запросы оплачиваются отдельно по тарифу OpenAI API.")
+                        }
                     }
                 }
                 LabSettingsCard(title: "Голос", symbol: "waveform", summary: speechSummary) {
                     Toggle("Автоматически озвучивать перевод", isOn: $model.autoSpeak)
                     LabGraphiteSelectionField(title: "Движок озвучивания", selection: $model.speechEngine, choices: [
                         LabGraphiteChoice(id: "apple", title: "Apple", detail: "Системные голоса iPhone · без API-расходов", symbol: "iphone"),
-                        LabGraphiteChoice(id: "elevenlabs", title: "ElevenLabs", detail: "Облачные голоса · отдельный платный API", symbol: "waveform")
-                    ], note: "Голос можно прослушать перед выбором. Демо ElevenLabs не создаёт платную генерацию.")
+                        LabGraphiteChoice(id: "elevenlabs", title: "ElevenLabs", detail: "Облачные голоса · отдельный платный API", symbol: "waveform"),
+                        LabGraphiteChoice(id: "openai", title: "OpenAI", detail: "GPT-Realtime 2.1 · отдельный платный API", symbol: "waveform")
+                    ], note: "Готовые записи бесплатны; создание языковой пробы — отдельная платная кнопка.")
                     Text(model.speechEngine == "apple"
                          ? "Apple озвучивает бесплатно и остаётся резервным движком."
-                         : "ElevenLabs — отдельный платный API. В ElevenLabs отправляется только готовый перевод. Повторное прослушивание сохранённого звука не создаёт нового запроса.")
+                         : "Облачное озвучивание оплачивается отдельно через API выбранного сервиса. Отправляется только готовый перевод. Повторное прослушивание сохранённого звука не создаёт нового запроса.")
                         .font(.footnote)
                     if model.speechEngine == "apple" {
                     NavigationLink {
@@ -128,6 +131,7 @@ struct LabSettings: View {
                         .font(.footnote)
                     }
                 }
+                if model.speechEngine == "openai" { LabOpenAISpeechSettings(model: model) }
                 if model.speechEngine == "elevenlabs" {
                     LabSettingsCard(title: "Студия ElevenLabs", symbol: "slider.horizontal.3", summary: "\(model.elevenModel == LabElevenModels.fast ? "Flash v2.5" : "Multilingual v2") · \(model.elevenKeySaved ? "подключено" : "нужен ключ")\n\(model.elevenAutoGenerate ? "Автогенерация · расход кредитов" : "Генерация вручную")") {
                         Text(model.elevenKeySaved
@@ -273,6 +277,9 @@ struct LabSettings: View {
           : "OpenAI API · \(model.modelID)"
     }
     private var speechSummary: String {
+        if model.speechEngine == "openai" {
+            return "OpenAI · \(model.openAISpeechModel == LabOpenAISpeech.model ? "Realtime 2.1" : "2.1 Mini")\nRU: \(model.openAIRussianVoice.capitalized) · \(model.partner.rawValue.uppercased()): \(model.openAIPartnerVoice.capitalized)"
+        }
         let engine = model.speechEngine == "apple" ? "Apple" : "ElevenLabs"
         let russian = model.speechEngine == "apple" ? appleName(model.russianVoiceID) : elevenName(model.elevenRussianVoice)
         let partner = model.speechEngine == "apple" ? appleName(model.selectedPartnerVoiceID) : elevenName(model.elevenPartnerVoice)

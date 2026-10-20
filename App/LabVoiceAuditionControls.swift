@@ -14,6 +14,7 @@ struct LabVoiceAuditionControls: View {
     private var generatedIdentity: String { "generated:" + voiceID + ":" + language + ":" + modelID }
     private var cached: Bool { preview.hasGenerated(voiceID: voiceID, language: language, modelID: modelID) }
     private var activeHere: Bool { preview.activeID == generatedIdentity || preview.activeID == recordedIdentity }
+    private var generationCost: String { LabOpenAISpeech.supports(modelID) ? "генерация оплачивается через OpenAI API" : "генерация расходует кредиты ElevenLabs" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -28,7 +29,7 @@ struct LabVoiceAuditionControls: View {
                 Text("«\(LabVoicePreview.sampleText(for: language))»")
                     .font(.system(size: 11)).lineSpacing(4).foregroundStyle(.white.opacity(0.65))
                     .fixedSize(horizontal: false, vertical: true)
-                Text("\(modelID == LabElevenModels.fast ? "Flash v2.5" : modelID == LabElevenModels.natural ? "Multilingual v2" : modelID) · \(cached ? "сохранённое аудио" : "генерация расходует кредиты ElevenLabs")")
+                Text("\(modelID == LabElevenModels.fast ? "Flash v2.5" : modelID == LabElevenModels.natural ? "Multilingual v2" : modelID) · \(cached ? "сохранённое аудио" : generationCost)")
                     .font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
                 Button {
                     attemptedHere = true

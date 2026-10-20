@@ -28,7 +28,7 @@ struct LabView: View {
                     VStack(spacing: 12) {
                         header.padding(.top, 10)
                         LabGraphiteSignalView(signal: model.visualSignal,
-                                              phase: resonancePhase, orbitActive: false)
+                                              phase: resonancePhase, orbitActive: settings || languagePicker)
                             .frame(height: min(235, max(150, geometry.size.height * 0.29)))
                             .accessibilityHidden(true)
                         status

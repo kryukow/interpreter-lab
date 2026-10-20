@@ -62,6 +62,12 @@ final class GraphiteRendererTests: XCTestCase {
         XCTAssertFalse(surface.isAnimating, "Resume respects Reduce Motion")
         surface.update(phase: .output, bands: .silence, orbitActive: false, reduceMotion: false)
         XCTAssertTrue(surface.isAnimating)
+        surface.update(phase: .output, bands: .silence, orbitActive: true, reduceMotion: false)
+        XCTAssertFalse(surface.isAnimating, "Opening a sheet must pause hidden sphere work")
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        XCTAssertFalse(surface.isAnimating, "Foreground resume must preserve sheet occlusion")
+        surface.update(phase: .output, bands: .silence, orbitActive: false, reduceMotion: false)
+        XCTAssertTrue(surface.isAnimating, "Closing the sheet resumes without changing stage")
         surface.removeFromSuperview()
         XCTAssertFalse(surface.isAnimating, "Detached surfaces consume no frames")
     }
@@ -74,5 +80,17 @@ final class GraphiteRendererTests: XCTestCase {
             surface.update(phase: .idle, bands: .silence, orbitActive: false, reduceMotion: false)
         }
         XCTAssertNil(released)
+    }
+
+    func testAdaptiveFrameRatePolicy() {
+        XCTAssertEqual(LabSphereFramePolicy.requestedRate(screenMaximum: 120, lowPower: false, thermalState: .nominal), 120)
+        XCTAssertEqual(LabSphereFramePolicy.requestedRate(screenMaximum: 120, lowPower: false, thermalState: .fair), 120)
+        XCTAssertEqual(LabSphereFramePolicy.requestedRate(screenMaximum: 60, lowPower: false, thermalState: .nominal), 60)
+        XCTAssertEqual(LabSphereFramePolicy.requestedRate(screenMaximum: 0, lowPower: false, thermalState: .nominal), 60)
+        XCTAssertEqual(LabSphereFramePolicy.requestedRate(screenMaximum: 240, lowPower: false, thermalState: .nominal), 120)
+        XCTAssertEqual(LabSphereFramePolicy.requestedRate(screenMaximum: 120, lowPower: true, thermalState: .nominal), 30)
+        XCTAssertEqual(LabSphereFramePolicy.requestedRate(screenMaximum: 120, lowPower: false, thermalState: .serious), 30)
+        XCTAssertEqual(LabSphereFramePolicy.requestedRate(screenMaximum: 60, lowPower: false, thermalState: .critical), 30)
+        XCTAssertEqual(LabSphereFramePolicy.requestedRate(screenMaximum: 24, lowPower: true, thermalState: .serious), 24)
     }
 }

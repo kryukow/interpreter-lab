@@ -16,6 +16,10 @@ import CryptoKit
     private var utterance: AVSpeechUtterance?
     private var ownsAudioSession = false
     var generateSample: (String, String, String) async throws -> URL = { text, voiceID, modelID in
+        if LabOpenAISpeech.supports(modelID) {
+            guard let key = try LabKeychain.load() else { throw LabOpenAISpeech.SpeechError.noKey }
+            return try await LabOpenAISpeech.synthesize(text: text, voice: voiceID, apiKey: key, modelID: modelID)
+        }
         guard let key = try LabElevenKeychain.load() else { throw LabElevenAPI.Error.noKey }
         return try await LabElevenAPI.synthesize(text: text, voiceID: voiceID, modelID: modelID, apiKey: key)
     }
@@ -23,7 +27,7 @@ import CryptoKit
     static func generatedCacheName(voiceID: String, language: String, modelID: String) -> String {
         let parts = [voiceID, language, modelID, sampleText(for: language)]
         let data = (try? JSONEncoder().encode(parts)) ?? Data()
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() + ".mp3"
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() + (LabOpenAISpeech.supports(modelID) ? ".wav" : ".mp3")
     }
 
     private func generatedURL(voiceID: String, language: String, modelID: String) -> URL {
