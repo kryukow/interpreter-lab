@@ -149,20 +149,18 @@ import SwiftUI
     }
 
     func refreshKey() { keySaved = (try? LabKeychain.load()) != nil }
-    func saveKey(_ key: String) throws { try LabKeychain.save(key); refreshKey(); NotificationCenter.default.post(name: LabBudgetEvents.credentialsChanged, object: nil) }
-    func deleteKey() throws { try LabKeychain.delete(); refreshKey(); NotificationCenter.default.post(name: LabBudgetEvents.credentialsChanged, object: nil) }
+    func saveKey(_ key: String) throws { try LabKeychain.save(key); refreshKey() }
+    func deleteKey() throws { try LabKeychain.delete(); refreshKey() }
 
     func refreshElevenKey() { elevenKeySaved = (try? LabElevenKeychain.load()) != nil }
     func saveElevenKey(_ value: String) throws {
         try LabElevenKeychain.save(value)
-        NotificationCenter.default.post(name: LabBudgetEvents.credentialsChanged, object: nil)
         refreshElevenKey()
         elevenVoices = []
         clearCachedEleven()
     }
     func deleteElevenKey() throws {
         try LabElevenKeychain.delete()
-        NotificationCenter.default.post(name: LabBudgetEvents.credentialsChanged, object: nil)
         refreshElevenKey()
         elevenVoices = []
         elevenRussianVoice = ""
@@ -383,7 +381,7 @@ import SwiftUI
                     }
                     bearer = key
                 }
-                let value = try await LabTranslator.translate(input, source: from, target: self.translationTarget, model: model, bearerToken: bearer, billable: self.authSource == "api")
+                let value = try await LabTranslator.translate(input, source: from, target: self.translationTarget, model: model, bearerToken: bearer)
                 guard self.generation == token && !Task.isCancelled else { return }
                 self.translation = value
                 self.phase = .idle

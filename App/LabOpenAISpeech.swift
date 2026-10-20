@@ -58,11 +58,6 @@ enum LabOpenAISpeech {
         let pcm = try await withTaskCancellationHandler {
             var collector = AudioCollector()
             var requested = false
-            var accounted = false
-            let fallbackID = UUID().uuidString
-            defer {
-                if requested && !accounted { LabSpendJournal.record(id: fallbackID, model: modelID, usage: nil, apiKey: apiKey) }
-            }
             while true {
                 try Task.checkCancellation()
                 let message = try await socket.receive()
@@ -76,12 +71,6 @@ enum LabOpenAISpeech {
                 if object["type"] as? String == "session.created", !requested {
                     requested = true
                     try await socket.send(.string(String(decoding: event, as: UTF8.self)))
-                }
-                if object["type"] as? String == "response.done", !accounted {
-                    let response = object["response"] as? [String: Any] ?? [:]
-                    LabSpendJournal.record(id: response["id"] as? String ?? fallbackID,
-                        model: modelID, usage: response["usage"] as? [String: Any], apiKey: apiKey)
-                    accounted = true
                 }
                 if try collector.append(object) { return collector.pcm }
             }

@@ -213,9 +213,6 @@ struct LabSettings: View {
                         Link("Открыть ElevenLabs", destination: URL(string: "https://elevenlabs.io/app")!)
                     }
                 }
-                LabSettingsCard(title: "Остаток и расходы", symbol: "chart.bar", summary: "ElevenLabs · данные сервиса\nOpenAI · расчёт Lab и сверка баланса") {
-                    LabBudgetControls(model: model)
-                }
                 LabSettingsCard(title: "Поведение", symbol: "iphone", summary: keepAwake ? "Экран остаётся включённым" : "Системное время блокировки") {
                     Toggle("Не гасить экран", isOn: $keepAwake)
                 }

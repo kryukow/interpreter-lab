@@ -179,7 +179,7 @@ jobs:
           info = plistlib.loads((app / "Info.plist").read_bytes())
           assert info["CFBundleIdentifier"] == "org.interpreter.lab"
           assert info["CFBundleShortVersionString"] == "0.7.0"
-          assert info["CFBundleVersion"] == "17"
+          assert info["CFBundleVersion"] == "18"
           assert info["CADisableMinimumFrameDurationOnPhone"] is True
           assert info["NSMicrophoneUsageDescription"]
           assert info["NSSpeechRecognitionUsageDescription"]
@@ -187,12 +187,12 @@ jobs:
           PY
           mkdir -p "$RUNNER_TEMP/lab-package/Payload"
           cp -R "$RUNNER_TEMP/LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app" "$RUNNER_TEMP/lab-package/Payload/"
-          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.7.0-Build17-Unsigned.ipa" Payload)
-          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.7.0-Build17-Unsigned.ipa"
+          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.7.0-Build18-Unsigned.ipa" Payload)
+          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.7.0-Build18-Unsigned.ipa"
       - uses: actions/upload-artifact@v4
         with:
-          name: Interpreter-Lab-0.7.0-Build17-Unsigned-iPhone
-          path: ${{ runner.temp }}/Interpreter-Lab-0.7.0-Build17-Unsigned.ipa
+          name: Interpreter-Lab-0.7.0-Build18-Unsigned-iPhone
+          path: ${{ runner.temp }}/Interpreter-Lab-0.7.0-Build18-Unsigned.ipa
           if-no-files-found: error
           retention-days: 7
       - name: Run renderer in iOS Simulator

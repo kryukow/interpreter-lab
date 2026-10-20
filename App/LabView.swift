@@ -28,11 +28,10 @@ struct LabView: View {
                 ScrollView {
                     VStack(spacing: 12) {
                         header.padding(.top, 10)
-                        LabBudgetMeter(model: model) { budgetSheet = true }
                         LabGraphiteSignalView(signal: model.visualSignal,
                                               phase: resonancePhase, orbitActive: settings || languagePicker || budgetSheet)
                             .frame(height: min(235, max(150, geometry.size.height * 0.29)))
-                            .accessibilityHidden(true)
+                            .overlay { LabSphereBudget(model: model) { budgetSheet = true } }
                         status
                         LabPipelineStatus(phase: model.phase).padding(.vertical, 8)
                         LabTranscriptConsole(model: model)

@@ -8,6 +8,36 @@ enum LabBudgetFormat {
     static func credits(_ value: Int) -> String { value.formatted(.number.grouping(.automatic)) }
 }
 
+struct LabSphereBudget: View {
+    @ObservedObject var model: LabSession
+    @ObservedObject private var budget = LabAccountBudget.shared
+    let open: () -> Void
+    private var value: String {
+        switch model.speechEngine {
+        case "elevenlabs": return budget.eleven.map { LabBudgetFormat.credits($0.remaining) } ?? "—"
+        case "openai": return budget.ledger.estimatedRemaining.map { LabBudgetFormat.usd($0) } ?? "—"
+        default: return "0"
+        }
+    }
+    var body: some View {
+        Button(action: open) {
+            Text(value)
+                .font(.system(size: 25, weight: .ultraLight))
+                .monospacedDigit().tracking(-0.6)
+                .foregroundStyle(Color(red: 0.72, green: 0.78, blue: 0.83).opacity(0.42))
+                .minimumScaleFactor(0.65).lineLimit(1)
+                .frame(width: 106, height: 60)
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+            .accessibilityLabel(model.speechEngine == "openai" ? "OpenAI. Расчётный остаток \(value)" : model.speechEngine == "elevenlabs" ? "ElevenLabs. Остаток \(value) кредитов" : "Apple Voice. Озвучивание бесплатно")
+            .accessibilityHint("Открыть остаток и расходы")
+            .task(id: model.speechEngine) {
+                budget.reloadLedger()
+                if model.speechEngine == "elevenlabs" { await budget.refreshEleven() }
+            }
+    }
+}
+
 struct LabBudgetMeter: View {
     @ObservedObject var model: LabSession
     @ObservedObject private var budget = LabAccountBudget.shared

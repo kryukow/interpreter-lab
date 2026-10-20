@@ -102,7 +102,6 @@ enum LabElevenAPI {
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "text": message, "model_id": modelID
         ])
-        defer { NotificationCenter.default.post(name: LabBudgetEvents.elevenCharged, object: nil) }
         let (bytes, response) = try await URLSession.shared.data(for: request)
         try Task.checkCancellation()
         try check(bytes, response)

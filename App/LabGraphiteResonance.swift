@@ -56,6 +56,10 @@ final class GraphiteResonanceSurface: UIView {
     private var rotationClock: CGFloat = 3
     private var speed: CGFloat = 0.55
     private var direction: CGFloat = 1
+    private var particleClock: CGFloat = 0
+    private var particleDirection: CGFloat = 1
+    private var particleVisibility: CGFloat = 0
+    private var tailDirection: CGFloat = 1
     private var dimmed = false
     private(set) var requestedFrameRate = 60
     private(set) var renderedFrames = 0
@@ -144,6 +148,11 @@ final class GraphiteResonanceSurface: UIView {
         direction += ((phase == .output ? -1 : 1) - direction) * blend
         clock += dt * speed
         rotationClock += dt * speed * direction
+        particleDirection += ((phase == .output ? -1 : 1) - particleDirection) * (1 - exp(-dt * 2.8))
+        particleClock += dt * particleDirection
+        let visible: CGFloat = phase == .input || phase == .output ? 1 : 0
+        particleVisibility += (visible - particleVisibility) * (1 - exp(-dt * 3))
+        tailDirection += (tanh(direction * speed * 4) - tailDirection) * (1 - exp(-dt * 4))
         setNeedsDisplay()
     }
     private static func color(_ hex: UInt32, _ alpha: CGFloat) -> CGColor {
@@ -171,18 +180,59 @@ final class GraphiteResonanceSurface: UIView {
             context.setFillColor(Self.color(0xb6c7da, 0.11 + CGFloat(i % 5) * 0.045))
             context.fillEllipse(in: CGRect(x: cos(a) * 136 * radial, y: sin(a) * 74 * radial, width: diameter, height: diameter))
         }
+        if particleVisibility > 0.003 && !reducedMotion {
+            context.saveGState()
+            context.setBlendMode(.screen)
+            for i in 0..<23 {
+                let raw = particleClock * (0.23 + CGFloat(i % 4) * 0.025) + CGFloat(i) * 0.6180339887
+                let travel = raw - floor(raw)
+                let angle = CGFloat(i) * 2.399963 + 0.12 * sin(t * 0.25 + CGFloat(i))
+                let start = 138 + CGFloat(i % 5) * 12
+                let end = 43 + CGFloat(i % 3) * 5
+                let radius = start + (end - start) * travel
+                let alpha = sin(.pi * travel) * particleVisibility
+                let point = CGPoint(x: cos(angle) * radius, y: sin(angle) * radius * 0.68)
+                let length = (3 + travel * 11) * tanh(particleDirection * 3)
+                let tail = CGPoint(x: point.x + cos(angle) * length, y: point.y + sin(angle) * length * 0.68)
+                context.setLineWidth(0.65)
+                for segment in 0..<6 {
+                    let f = CGFloat(segment) / 6, g = CGFloat(segment + 1) / 6
+                    context.beginPath()
+                    context.move(to: CGPoint(x: tail.x + (point.x - tail.x) * f, y: tail.y + (point.y - tail.y) * f))
+                    context.addLine(to: CGPoint(x: tail.x + (point.x - tail.x) * g, y: tail.y + (point.y - tail.y) * g))
+                    context.setStrokeColor(Self.color(0xc8def6, alpha * g * 0.47)); context.strokePath()
+                }
+                let size: CGFloat = i % 7 == 0 ? 2.2 : 1.3
+                context.setFillColor(Self.color(0xe2eefc, alpha * 0.75))
+                context.fillEllipse(in: CGRect(x: point.x - size / 2, y: point.y - size / 2, width: size, height: size))
+            }
+            let fall = (t * 0.32).truncatingRemainder(dividingBy: 1)
+            let alpha = sin(.pi * fall) * particleVisibility * max(0, particleDirection)
+            let head = CGPoint(x: -126 + fall * 99, y: -88 + fall * 66)
+            for i in 0..<10 {
+                let f = CGFloat(i) / 10, g = CGFloat(i + 1) / 10
+                context.beginPath()
+                context.move(to: CGPoint(x: head.x - 26 * (1 - f), y: head.y - 20 * (1 - f)))
+                context.addLine(to: CGPoint(x: head.x - 26 * (1 - g), y: head.y - 20 * (1 - g)))
+                context.setLineWidth(1); context.setStrokeColor(Self.color(0xdaebfe, alpha * g * 0.65)); context.strokePath()
+            }
+            context.setFillColor(Self.color(0xebf6ff, alpha * 0.85))
+            context.setShadow(offset: .zero, blur: 5, color: Self.color(0xc1ddfa, alpha))
+            context.fillEllipse(in: CGRect(x: head.x - 1.2, y: head.y - 1.2, width: 2.4, height: 2.4))
+            context.restoreGState()
+        }
         context.saveGState()
         context.rotate(by: -0.1)
-        context.setStrokeColor(Self.color(0xa0b2c5, 0.23)); context.setLineWidth(0.65)
+        context.setStrokeColor(Self.color(0xafc4dc, 0.41)); context.setLineWidth(0.8)
         context.strokeEllipse(in: CGRect(x: -148, y: -77, width: 296, height: 154))
         let orbitAngle = rotationClock * 0.34
         for i in 0..<60 {
-            let q = orbitAngle - CGFloat(i) * 0.008
+            let q = orbitAngle - CGFloat(i) * 0.008 * tailDirection
             context.beginPath()
             context.move(to: CGPoint(x: cos(q) * 148, y: sin(q) * 77))
             context.addLine(to: CGPoint(x: cos(q + 0.011) * 148, y: sin(q + 0.011) * 77))
-            context.setStrokeColor(Self.color(0xd9e8f9, (1 - CGFloat(i) / 60) * 0.73 * glow))
-            context.setLineWidth(0.8 + (1 - CGFloat(i) / 60) * 0.65)
+            context.setStrokeColor(Self.color(0xd9e8f9, (1 - CGFloat(i) / 60) * 0.88 * glow))
+            context.setLineWidth(0.9 + (1 - CGFloat(i) / 60) * 0.8)
             context.strokePath()
         }
         context.restoreGState()
