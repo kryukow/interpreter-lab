@@ -117,7 +117,7 @@ final class GraphiteResonanceSurface: UIView {
             minimum: Float(min(60, rate)), maximum: Float(rate), preferred: Float(rate))
         // Audio updates may arrive between display ticks. The link exclusively
         // owns invalidation while moving. Sheets pause it to free the main thread.
-        if displayLink == nil { setNeedsDisplay() }
+        if displayLink == nil && !dimmed { setNeedsDisplay() }
     }
     func update(phase: LabResonancePhase, bands: LabAudioBands, orbitActive: Bool, reduceMotion: Bool) {
         self.phase = phase
