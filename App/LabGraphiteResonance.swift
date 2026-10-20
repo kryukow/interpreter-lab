@@ -2,10 +2,7 @@ import SwiftUI
 import UIKit
 import QuartzCore
 
-/// The accepted RESONANCE / CONCEPT 03, palette Graphite, preset Expressive.
-/// Canonical SVG path/control points, 4 soft monochrome clouds, 65% x 48%
-/// thin oval halo, and 40-unit traveling highlight are carried over from the
-/// actual approved interactive prototype. No alternative drawing is used.
+/// The approved graphite sphere, rendered independently of SwiftUI state updates.
 struct LabGraphiteResonance: UIViewRepresentable {
     let phase: LabResonancePhase
     let bands: LabAudioBands
@@ -27,427 +24,277 @@ struct LabGraphiteResonance: UIViewRepresentable {
     }
 }
 
-/// Compositor-only rendering:
-/// - Blurred radial light fields are drawn into 256px textures ONCE, not blurred
-///   or repainted every frame.
-/// - Core Animation drifts cloud holders independently from their voice scales.
-/// - A CAShapeLayer animates dashPhase for the continuously traveling ∞ highlight.
-/// - Audio-driven changes touch only opacity/transform/stroke width at <=20 Hz.
+enum LabSphereFramePolicy {
+    /// Request the display's native rate; conserve energy under system pressure.
+    static func requestedRate(screenMaximum: Int, lowPower: Bool,
+                              thermalState: ProcessInfo.ThermalState) -> Int {
+        let native = min(120, max(1, screenMaximum > 0 ? screenMaximum : 60))
+        if lowPower || thermalState == .serious || thermalState == .critical {
+            return min(30, native)
+        }
+        return native
+    }
+}
+
+/// Native port of the approved graphite-orb paintOrb. An adaptive display link lives
+/// entirely in this UIKit surface: no timers, published state or SwiftUI redraws.
+/// Its weak target prevents retention; offscreen/background/reduced motion stops it.
 final class GraphiteResonanceSurface: UIView {
-    private let artwork = CALayer()
-    // Graphite depth fades smoothly from center to black at the edges.
-    private let graphiteDepth = CALayer()
-    private let leftDrift = CALayer()
-    private let rightDrift = CALayer()
-    private let bottomDrift = CALayer()
-    private let centerDrift = CALayer()
-    private let cloudLeft = CALayer()
-    private let cloudRight = CALayer()
-    private let cloudBottom = CALayer()
-    private let cloudCenter = CALayer()
-    private let bloom = CALayer()
-
-    private let halo = CAShapeLayer()
-    private let haloTracer = CAShapeLayer()
-    private var haloLength: CGFloat = 1
-    private let ribbon = CALayer()
-    private let aura = CAShapeLayer()
-    private let underside = CAShapeLayer()
-    private let mainStroke = CAShapeLayer()
-    private let metal = CAGradientLayer()
-    private let glint = CAShapeLayer()
-    private let lightTail = CAShapeLayer()
-
-    // The SVG path is reproduced from CONCEPT 03's exact geometry:
-    // M186 132 C162 99 145 82 113 82 ... C226 183 208 155 186 132
-    // Its painted region is ~149 x 62 points at full size, vs 244 x 101 SVG units.
-    private let ribbonWidth: CGFloat = 188
-    private let ribbonHeight: CGFloat = 112
-    private var contourLength: CGFloat = 1
-    private var previousSize = CGSize.zero
-    private var currentPhase: LabResonancePhase = .idle
-    private var configuredPhase: LabResonancePhase?
-    private var motionEnabled = false
+    private final class TickTarget: NSObject {
+        weak var surface: GraphiteResonanceSurface?
+        @objc func tick(_ link: CADisplayLink) { surface?.tick(link) }
+    }
+    private let tickTarget = TickTarget()
+    private var displayLink: CADisplayLink?
+    private var lastTimestamp: CFTimeInterval = 0
+    private var active = UIApplication.shared.applicationState != .background
     private var reducedMotion = false
+    private var phase: LabResonancePhase = .idle
+    private var targetEnergy: CGFloat = 0
+    private var energy: CGFloat = 0
+    private var clock: CGFloat = 3
+    private var rotationClock: CGFloat = 3
+    private var speed: CGFloat = 0.55
+    private var direction: CGFloat = 1
+    private var particleClock: CGFloat = 0
+    private var particleDirection: CGFloat = 1
+    private var particleVisibility: CGFloat = 0
+    private var tailDirection: CGFloat = 1
+    private var dimmed = false
+    private(set) var requestedFrameRate = 60
+    private(set) var renderedFrames = 0
+    var isAnimating: Bool { displayLink != nil }
+    var sphereRadius: CGFloat { 61 * min(bounds.width / 395, bounds.height / 235) }
+    private static let body = gradient([
+        (0x364351, 1), (0x202c39, 1), (0x111a25, 1), (0x05090f, 1)
+    ], stops: [0, 0.32, 0.65, 1])
+    private static let fog = gradient([
+        (0xadc1da, 0.10), (0x8fa8c0, 0.098), (0x8fa8c0, 0)
+    ], stops: [0, 0.38, 1])
+    private static let atmosphere = gradient([(0x90abce, 0.12), (0x8da9ce, 0)], stops: [0, 1])
+    private static let shade = gradient([
+        (0x000000, 0), (0x02060c, 0.03), (0x01040b, 0.77)
+    ], stops: [0, 0.55, 1])
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = false
         backgroundColor = .clear
-        clipsToBounds = false
-        layer.masksToBounds = false
-
-        artwork.masksToBounds = false
-        layer.addSublayer(artwork)
-        graphiteDepth.contents = Self.softRadialImage(
-            color: UIColor(red: 0.42, green: 0.45, blue: 0.51, alpha: 1))
-        graphiteDepth.contentsGravity = .resize
-        graphiteDepth.contentsScale = 1
-        graphiteDepth.opacity = 0.38
-        artwork.addSublayer(graphiteDepth)
-        let cloudConfigurations: [(holder: CALayer, light: CALayer, color: UIColor)] = [
-            (leftDrift, cloudLeft, UIColor(red: 0.4118, green: 0.4431, blue: 0.5059, alpha: 1)), // #697181
-            (rightDrift, cloudRight, UIColor(red: 0.8275, green: 0.8471, blue: 0.8902, alpha: 1)), // #D3D8E3
-            (bottomDrift, cloudBottom, UIColor(red: 0.5020, green: 0.5373, blue: 0.6196, alpha: 1)), // #80899E
-            (centerDrift, cloudCenter, UIColor(red: 0.7843, green: 0.7961, blue: 0.8431, alpha: 1)) // #C8CBD7
-        ]
-        for (holder, light, color) in cloudConfigurations {
-            holder.masksToBounds = false
-            artwork.addSublayer(holder)
-            light.contents = Self.softRadialImage(color: color)
-            light.contentsGravity = .resize
-            light.contentsScale = 1
-            light.minificationFilter = .linear
-            light.magnificationFilter = .linear
-            light.masksToBounds = false
-            holder.addSublayer(light)
+        contentMode = .redraw
+        tickTarget.surface = self
+        NotificationCenter.default.addObserver(self, selector: #selector(suspend), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(resume), name: UIApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(systemPressureChanged), name: .NSProcessInfoPowerStateDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(systemPressureChanged), name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
+    }
+    required init?(coder: NSCoder) { fatalError("Code-only sphere") }
+    deinit {
+        displayLink?.invalidate()
+        NotificationCenter.default.removeObserver(self)
+    }
+    override func didMoveToWindow() { super.didMoveToWindow(); configureMotion() }
+    @objc private func suspend() { active = false; configureMotion() }
+    @objc private func resume() { active = true; configureMotion() }
+    @objc private func systemPressureChanged() {
+        if Thread.isMainThread { configureMotion() }
+        else { DispatchQueue.main.async { [weak self] in self?.configureMotion() } }
+    }
+    private func configureMotion() {
+        let rate = LabSphereFramePolicy.requestedRate(
+            screenMaximum: window?.screen.maximumFramesPerSecond ?? 60,
+            lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            thermalState: ProcessInfo.processInfo.thermalState)
+        if requestedFrameRate != rate { lastTimestamp = 0 }
+        requestedFrameRate = rate
+        let enabled = window != nil && active && !reducedMotion && !dimmed
+        if enabled && displayLink == nil {
+            lastTimestamp = 0
+            let link = CADisplayLink(target: tickTarget, selector: #selector(TickTarget.tick(_:)))
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+        } else if !enabled {
+            displayLink?.invalidate()
+            displayLink = nil
+            lastTimestamp = 0
         }
-        bloom.contents = Self.softRadialImage(
-            color: UIColor(red: 0.7843, green: 0.7961, blue: 0.8431, alpha: 1))
-        bloom.contentsGravity = .resize
-        bloom.contentsScale = 1
-        bloom.opacity = 0.07
-        artwork.addSublayer(bloom)
-
-        setupStroke(halo, color: UIColor(red: 0.7843, green: 0.7961, blue: 0.8431, alpha: 1),
-                    width: 0.75)
-        // Unlike 0.4.2, the oval must remain visible and gently breathe in idle.
-        halo.opacity = 0.19
-        artwork.addSublayer(halo)
-        setupStroke(haloTracer, color: UIColor(white: 0.96, alpha: 1), width: 1.35)
-        haloTracer.opacity = 0.42
-        haloTracer.lineCap = .round
-        artwork.addSublayer(haloTracer)
-
-        ribbon.masksToBounds = false
-        artwork.addSublayer(ribbon)
-        setupStroke(aura, color: UIColor(red: 0.7843, green: 0.7961, blue: 0.8431, alpha: 1),
-                    width: 19)
-        aura.shadowColor = UIColor(white: 0.92, alpha: 1).cgColor
-        aura.shadowOpacity = 0.20
-        aura.shadowRadius = 11
-        aura.shadowOffset = .zero
-        aura.opacity = 0.13
-        setupStroke(underside, color: UIColor(white: 0.18, alpha: 1), width: 9)
-        setupStroke(mainStroke, color: .white, width: 6.7)
-        // Moving contour light: a luminous leading bar and broad diffused tail.
-        // At a compact glyph size 1.7pt was barely visible on its metal surface.
-        setupStroke(lightTail, color: UIColor(white: 0.98, alpha: 1), width: 8.8)
-        setupStroke(glint, color: .white, width: 4.2)
-        glint.opacity = 0.98
-        glint.shadowColor = UIColor.white.cgColor
-        glint.shadowOpacity = 0.58
-        glint.shadowRadius = 5
-        glint.shadowOffset = .zero
-        [aura, underside].forEach(ribbon.addSublayer)
-
-        // Silver/graphite metal from the approved CSS gradient, not flat white.
-        metal.colors = [
-            UIColor(red: 0.682, green: 0.722, blue: 0.827, alpha: 1).cgColor,
-            UIColor.white.cgColor,
-            UIColor(red: 0.827, green: 0.859, blue: 0.922, alpha: 1).cgColor,
-            UIColor.white.cgColor,
-            UIColor(red: 0.694, green: 0.722, blue: 0.820, alpha: 1).cgColor
-        ]
-        metal.locations = [0, 0.22, 0.56, 0.79, 1]
-        metal.startPoint = CGPoint(x: 0, y: 0)
-        metal.endPoint = CGPoint(x: 1, y: 1)
-        metal.mask = mainStroke
-        ribbon.addSublayer(metal)
-        [lightTail, glint].forEach(ribbon.addSublayer)
-        lightTail.opacity = 0
+        displayLink?.preferredFrameRateRange = CAFrameRateRange(
+            minimum: Float(min(60, rate)), maximum: Float(rate), preferred: Float(rate))
+        // Audio updates may arrive between display ticks. The link exclusively
+        // owns invalidation while moving. Sheets pause it to free the main thread.
+        if displayLink == nil && !dimmed { setNeedsDisplay() }
     }
-
-    required init?(coder: NSCoder) {
-        fatalError("GraphiteResonanceSurface is code-only")
-    }
-
-    private static func softRadialImage(color: UIColor) -> CGImage? {
-        // The accepted CSS used radial-gradient(..., transparent 69%) and
-        // filter:blur(38px). Pre-baking feathered falloff eliminates GPU blur.
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 256), format: format)
-        return renderer.image { image in
-            let context = image.cgContext
-            let space = CGColorSpaceCreateDeviceRGB()
-            let colors: [CGColor] = [
-                color.withAlphaComponent(0.75).cgColor,
-                color.withAlphaComponent(0.48).cgColor,
-                color.withAlphaComponent(0.15).cgColor,
-                color.withAlphaComponent(0).cgColor
-            ]
-            guard let gradient = CGGradient(colorsSpace: space,
-                                            colors: colors as CFArray,
-                                            locations: [0.0, 0.25, 0.55, 0.94]) else { return }
-            context.drawRadialGradient(
-                gradient, startCenter: CGPoint(x: 128, y: 128), startRadius: 0,
-                endCenter: CGPoint(x: 128, y: 128), endRadius: 128,
-                options: [.drawsAfterEndLocation]
-            )
-        }.cgImage
-    }
-
-    private func setupStroke(_ shape: CAShapeLayer, color: UIColor, width: CGFloat) {
-        shape.fillColor = nil
-        shape.strokeColor = color.cgColor
-        shape.lineCap = .round
-        shape.lineJoin = .round
-        shape.lineWidth = width
-        shape.contentsScale = UIScreen.main.scale
-        shape.drawsAsynchronously = true
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let size = bounds.size
-        guard size.width > 0, size.height > 0, size != previousSize else { return }
-        previousSize = size
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        artwork.frame = bounds
-        graphiteDepth.frame = CGRect(x: size.width * 0.035, y: size.height * 0.025,
-                                     width: size.width * 0.93, height: size.height * 0.93)
-        // Percentages are DIRECTLY from CONCEPT 03's Graphite stage:
-        // clouds: a[-14%,4%,62%,73%], b[49%,2%,69%,77%],
-        // c[18%,52%,67%,61%], d[27%,23%,45%,48%].
-        for holder in [leftDrift, rightDrift, bottomDrift, centerDrift] {
-            holder.frame = bounds
-        }
-        cloudLeft.frame = CGRect(x: -0.14 * size.width, y: 0.04 * size.height,
-                                 width: 0.62 * size.width, height: 0.73 * size.height)
-        cloudRight.frame = CGRect(x: 0.49 * size.width, y: 0.02 * size.height,
-                                  width: 0.69 * size.width, height: 0.77 * size.height)
-        cloudBottom.frame = CGRect(x: 0.18 * size.width, y: 0.52 * size.height,
-                                   width: 0.67 * size.width, height: 0.61 * size.height)
-        cloudCenter.frame = CGRect(x: 0.27 * size.width, y: 0.23 * size.height,
-                                   width: 0.45 * size.width, height: 0.48 * size.height)
-
-        bloom.frame = CGRect(x: size.width * 0.16, y: size.height * 0.16,
-                             width: size.width * 0.68, height: size.height * 0.65)
-        let oval = UIBezierPath(ovalIn: CGRect(
-            x: size.width * 0.175, y: size.height * 0.21,
-            width: size.width * 0.65, height: size.height * 0.48)).cgPath
-        halo.frame = bounds
-        halo.path = oval
-        haloTracer.frame = bounds
-        haloTracer.path = oval
-        haloLength = length(of: oval)
-
-        let width = min(ribbonWidth, size.width * 0.60)
-        let height = width * ribbonHeight / ribbonWidth
-        ribbon.frame = CGRect(x: (size.width - width) * 0.5,
-                              y: (size.height - height) * 0.5 - 1,
-                              width: width, height: height)
-        metal.frame = ribbon.bounds
-        let path = makeConcept03InfinityPath(in: ribbon.bounds)
-        for shape in [aura, underside, mainStroke, lightTail, glint] {
-            shape.frame = ribbon.bounds
-            shape.path = path
-        }
-        aura.shadowPath = path.copy(strokingWithWidth: 19, lineCap: .round,
-                                    lineJoin: .round, miterLimit: 10)
-        contourLength = length(of: path)
-        CATransaction.commit()
-        configureMotion(force: true)
-    }
-
-    /// Exact canonical control points from the approved interactive SVG:
-    /// M186 132 C162 99 145 82 113 82 C83 82 64 104 64 132
-    /// C64 161 85 183 113 183 C148 183 166 153 186 132
-    /// C210 110 226 82 258 82 C288 82 308 104 308 132
-    /// C308 161 287 183 258 183 C226 183 208 155 186 132
-    /// Uniform scaling prevents any horizontal stretch.
-    private func makeConcept03InfinityPath(in rect: CGRect) -> CGPath {
-        let path = UIBezierPath()
-        let scale = min(0.61, rect.width * 0.86 / 244, rect.height * 0.72 / 101)
-        let cx = rect.width / 2
-        let cy = rect.height / 2
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: cx + (x - 186) * scale, y: cy + (y - 132) * scale)
-        }
-        path.move(to: p(186, 132))
-        path.addCurve(to: p(113, 82),
-                      controlPoint1: p(162, 99), controlPoint2: p(145, 82))
-        path.addCurve(to: p(64, 132),
-                      controlPoint1: p(83, 82), controlPoint2: p(64, 104))
-        path.addCurve(to: p(113, 183),
-                      controlPoint1: p(64, 161), controlPoint2: p(85, 183))
-        path.addCurve(to: p(186, 132),
-                      controlPoint1: p(148, 183), controlPoint2: p(166, 153))
-        path.addCurve(to: p(258, 82),
-                      controlPoint1: p(210, 110), controlPoint2: p(226, 82))
-        path.addCurve(to: p(308, 132),
-                      controlPoint1: p(288, 82), controlPoint2: p(308, 104))
-        path.addCurve(to: p(258, 183),
-                      controlPoint1: p(308, 161), controlPoint2: p(287, 183))
-        path.addCurve(to: p(186, 132),
-                      controlPoint1: p(226, 183), controlPoint2: p(208, 155))
-        path.close()
-        return path.cgPath
-    }
-
-    private func length(of path: CGPath) -> CGFloat {
-        var total: CGFloat = 0
-        var last = CGPoint.zero
-        var first = CGPoint.zero
-        func advance(_ next: CGPoint) {
-            total += hypot(next.x - last.x, next.y - last.y)
-            last = next
-        }
-        path.applyWithBlock { elementPointer in
-            let element = elementPointer.pointee
-            switch element.type {
-            case .moveToPoint:
-                last = element.points[0]; first = last
-            case .addLineToPoint: advance(element.points[0])
-            case .addCurveToPoint:
-                let a = element.points[0], b = element.points[1], end = element.points[2]
-                let start = last
-                for step in 1...48 {
-                    let t = CGFloat(step) / 48, u = 1 - t
-                    advance(CGPoint(
-                        x: u*u*u*start.x + 3*u*u*t*a.x + 3*u*t*t*b.x + t*t*t*end.x,
-                        y: u*u*u*start.y + 3*u*u*t*a.y + 3*u*t*t*b.y + t*t*t*end.y))
-                }
-            case .closeSubpath: advance(first)
-            default: break
-            }
-        }
-        return max(1, total)
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        configureMotion(force: true)
-    }
-
-    private func configureMotion(force: Bool = false) {
-        let enabled = window != nil && !reducedMotion
-        guard force || enabled != motionEnabled || configuredPhase != currentPhase else { return }
-        motionEnabled = enabled
-        configuredPhase = currentPhase
-
-        [leftDrift, rightDrift, bottomDrift, centerDrift].forEach { $0.removeAllAnimations() }
-        [halo, haloTracer, glint, lightTail].forEach { $0.removeAllAnimations() }
-
-        guard enabled else { return }
-        // Slow drifts directly follow the CSS 12/14/17/9-second ambient field.
-        animateDrift(leftDrift, dx: 19, dy: 7, seconds: 12)
-        animateDrift(rightDrift, dx: -16, dy: 12, seconds: 14)
-        animateDrift(bottomDrift, dx: 11, dy: -13, seconds: 17)
-        animateDrift(centerDrift, dx: -8, dy: 9, seconds: 9)
-
-        // The large, fine oval is alive even when waiting: very slow
-        // scaling in sync with a quiet orbiting silver shimmer. No center
-        // bar expanding independently of the ellipse.
-        let ovalBreath = CABasicAnimation(keyPath: "transform.scale")
-        ovalBreath.fromValue = 0.985
-        ovalBreath.toValue = 1.035
-        ovalBreath.duration = currentPhase == .input ? 2.1 : 3.4
-        ovalBreath.autoreverses = true
-        ovalBreath.repeatCount = .infinity
-        ovalBreath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        for ovalLayer in [halo, haloTracer] {
-            ovalLayer.add(ovalBreath.copy() as! CAAnimation, forKey: "breathingOval")
-        }
-
-        haloTracer.lineDashPattern = [
-            NSNumber(value: Double(haloLength * 0.075)),
-            NSNumber(value: Double(haloLength * 0.925))
-        ]
-        let ovalOrbit = CABasicAnimation(keyPath: "lineDashPhase")
-        ovalOrbit.fromValue = 0
-        ovalOrbit.toValue = -haloLength
-        ovalOrbit.duration = currentPhase == .input ? 4.2 :
-            currentPhase == .output ? 5.0 : 10.0
-        ovalOrbit.repeatCount = .infinity
-        ovalOrbit.timingFunction = CAMediaTimingFunction(name: .linear)
-        haloTracer.add(ovalOrbit, forKey: "ovalLightOrbit")
-
-        // Concept 03: a 40-unit bright segment follows a 900-unit gap.
-        // Arc-length normalized => no visible jump at the loop seam.
-        let segment = min(CGFloat(40) * 0.61, contourLength * 0.08)
-        glint.lineDashPattern = [NSNumber(value: Double(segment)),
-                                 NSNumber(value: Double(contourLength - segment))]
-        lightTail.lineDashPattern = [NSNumber(value: Double(segment * 2.1)),
-                                     NSNumber(value: Double(contourLength - segment * 2.1))]
-        if currentPhase == .input || currentPhase == .output {
-            animateLight(glint, lap: 4.0)
-            animateLight(lightTail, lap: 4.0)
-        }
-    }
-
-    private func animateLight(_ shape: CAShapeLayer, lap: CFTimeInterval) {
-        let animation = CABasicAnimation(keyPath: "lineDashPhase")
-        animation.fromValue = 0
-        animation.toValue = -contourLength
-        animation.duration = lap
-        animation.repeatCount = .infinity
-        animation.timingFunction = CAMediaTimingFunction(name: .linear)
-        shape.add(animation, forKey: "contourLight")
-    }
-
-    private func animateDrift(_ cloud: CALayer, dx: CGFloat, dy: CGFloat, seconds: CFTimeInterval) {
-        for (axis, distance) in [("x", dx), ("y", dy)] {
-            let anim = CABasicAnimation(keyPath: "transform.translation." + axis)
-            anim.fromValue = -distance
-            anim.toValue = distance
-            anim.duration = seconds
-            anim.autoreverses = true
-            anim.repeatCount = .infinity
-            anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            cloud.add(anim, forKey: "ambient." + axis)
-        }
-    }
-
-    func update(phase: LabResonancePhase, bands: LabAudioBands,
-                orbitActive: Bool, reduceMotion: Bool) {
+    func update(phase: LabResonancePhase, bands: LabAudioBands, orbitActive: Bool, reduceMotion: Bool) {
+        self.phase = phase
         reducedMotion = reduceMotion
-        currentPhase = phase
+        dimmed = orbitActive
+        let audio = CGFloat(max(0, min(1, bands.low * 0.45 + bands.mid * 0.38 + bands.high * 0.17)))
+        switch phase {
+        case .idle: targetEnergy = 0
+        case .input: targetEnergy = 0.12 + audio * 0.78
+        case .processing: targetEnergy = 0.33
+        case .output: targetEnergy = 0.22 + audio * 0.78
+        }
+        // A static, meaningful state is still rendered for Reduce Motion.
+        if reduceMotion { energy = targetEnergy }
         configureMotion()
-        let active = phase == .input || phase == .output
-        // Exact approved "Expressive" multiplier: 1.7.
-        let bass = active ? min(1, bands.low * 1.7) : 0
-        let mids = active ? min(1, bands.mid * 1.7) : 0
-        let highs = active ? min(1, bands.high * 1.7) : 0
-        let energy = max(bass, max(mids, highs))
-
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(0.10)
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-
-        // Cloud opacity + scale follow real timbre, not a random animation.
-        // Match JS: idle .395/.362; active .23 + .5*voice, center .23 + .4*voice.
-        cloudLeft.opacity = Float(0.23 + 0.50 * (active ? bass : 0.33))
-        cloudRight.opacity = Float(0.23 + 0.50 * (active ? mids : 0.33))
-        cloudBottom.opacity = Float(0.23 + 0.50 * (active ? highs : 0.33))
-        cloudCenter.opacity = Float(0.23 + 0.40 * (active ? energy : 0.33))
-        cloudLeft.transform = CATransform3DMakeScale(CGFloat(1 + 0.58 * bass), CGFloat(1 + 0.58 * bass), 1)
-        cloudRight.transform = CATransform3DMakeScale(CGFloat(1 + 0.47 * mids), CGFloat(1 + 0.47 * mids), 1)
-        cloudBottom.transform = CATransform3DMakeScale(CGFloat(1 + 0.50 * highs), CGFloat(1 + 0.50 * highs), 1)
-        cloudCenter.transform = CATransform3DMakeScale(CGFloat(1 + 0.72 * energy), CGFloat(1 + 0.72 * energy), 1)
-        // Prevent the broad center blob that obscured the graphite fog.
-        // Keep the Expressive response in the actual clouds and ∞ ribbon.
-        bloom.opacity = Float(active ? (0.05 + 0.22 * energy) : 0.045)
-        bloom.transform = CATransform3DMakeScale(CGFloat(0.82 + 0.14 * energy),
-                                                CGFloat(0.82 + 0.14 * energy), 1)
-
-        // Thin animated ellipse is always visible; voice increases its contrast.
-        halo.opacity = active ? Float(0.23 + 0.43 * mids) : 0.19
-        haloTracer.opacity = active ? Float(0.55 + 0.33 * highs) : 0.38
-        // Original CSS: audio bass expands X, mid range expands Y.
-        ribbon.transform = CATransform3DMakeScale(CGFloat(1 + bass * 0.085),
-                                                  CGFloat(1 + mids * 0.060), 1)
-        aura.opacity = Float(0.14 + 0.49 * energy)
-        aura.lineWidth = 17 + CGFloat(bass * 10)
-        // A clearly visible moving white bar must not disappear on quiet syllables.
-        glint.opacity = active ? Float(0.82 + 0.18 * highs) : 0
-        lightTail.opacity = active ? Float(0.29 + 0.25 * mids) : 0
-        let fade: Float = orbitActive ? 0.08 : 1
-        artwork.opacity = fade
-        CATransaction.commit()
+    }
+    private func tick(_ link: CADisplayLink) {
+        let dt = CGFloat(lastTimestamp == 0 ? 1.0 / Double(requestedFrameRate) : min(0.05, link.timestamp - lastTimestamp))
+        lastTimestamp = link.timestamp
+        let targetSpeed: CGFloat = phase == .idle ? 0.55 : phase == .input ? 1.4 : phase == .processing ? 2 : 1
+        let blend = min(1, dt * 3)
+        energy += (targetEnergy - energy) * blend
+        speed += (targetSpeed - speed) * blend
+        direction += ((phase == .output ? -1 : 1) - direction) * blend
+        clock += dt * speed
+        rotationClock += dt * speed * direction
+        particleDirection += ((phase == .output ? -1 : 1) - particleDirection) * (1 - exp(-dt * 2.8))
+        particleClock += dt * particleDirection
+        let visible: CGFloat = phase == .input || phase == .output ? 1 : 0
+        particleVisibility += (visible - particleVisibility) * (1 - exp(-dt * 3))
+        tailDirection += (tanh(direction * speed * 4) - tailDirection) * (1 - exp(-dt * 4))
+        setNeedsDisplay()
+    }
+    private static func color(_ hex: UInt32, _ alpha: CGFloat) -> CGColor {
+        UIColor(red: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255,
+                blue: CGFloat(hex & 255) / 255, alpha: alpha).cgColor
+    }
+    private static func gradient(_ colors: [(UInt32, CGFloat)], stops: [CGFloat]) -> CGGradient {
+        CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                   colors: colors.map { color($0.0, $0.1) } as CFArray, locations: stops)!
+    }
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext(), bounds.width > 0, bounds.height > 0 else { return }
+        renderedFrames += 1
+        context.saveGState()
+        context.setAlpha(dimmed ? 0.08 : 1)
+        context.translateBy(x: bounds.midX, y: bounds.midY)
+        let scale = min(bounds.width / 395, bounds.height / 235)
+        context.scaleBy(x: scale, y: scale)
+        let t = clock, e = energy, r: CGFloat = 61 * (1 + 0.014 * e * sin(t * 2.2))
+        let glow: CGFloat = 0.85 + e * 0.2
+        for i in 0..<36 {
+            let a = CGFloat(i) * 2.399963 + t * (0.006 + CGFloat(i % 4) * 0.003)
+            let radial = 1 + CGFloat(i % 6) * 0.08
+            let diameter: CGFloat = i % 8 == 0 ? 1.9 : 0.9
+            context.setFillColor(Self.color(0xb6c7da, 0.11 + CGFloat(i % 5) * 0.045))
+            context.fillEllipse(in: CGRect(x: cos(a) * 136 * radial, y: sin(a) * 74 * radial, width: diameter, height: diameter))
+        }
+        if particleVisibility > 0.003 && !reducedMotion {
+            context.saveGState()
+            context.setBlendMode(.screen)
+            for i in 0..<23 {
+                let raw = particleClock * (0.23 + CGFloat(i % 4) * 0.025) + CGFloat(i) * 0.6180339887
+                let travel = raw - floor(raw)
+                let angle = CGFloat(i) * 2.399963 + 0.12 * sin(t * 0.25 + CGFloat(i))
+                let start = 138 + CGFloat(i % 5) * 12
+                let end = 43 + CGFloat(i % 3) * 5
+                let radius = start + (end - start) * travel
+                let alpha = sin(.pi * travel) * particleVisibility
+                let point = CGPoint(x: cos(angle) * radius, y: sin(angle) * radius * 0.68)
+                let length = (3 + travel * 11) * tanh(particleDirection * 3)
+                let tail = CGPoint(x: point.x + cos(angle) * length, y: point.y + sin(angle) * length * 0.68)
+                context.setLineWidth(0.65)
+                for segment in 0..<6 {
+                    let f = CGFloat(segment) / 6, g = CGFloat(segment + 1) / 6
+                    context.beginPath()
+                    context.move(to: CGPoint(x: tail.x + (point.x - tail.x) * f, y: tail.y + (point.y - tail.y) * f))
+                    context.addLine(to: CGPoint(x: tail.x + (point.x - tail.x) * g, y: tail.y + (point.y - tail.y) * g))
+                    context.setStrokeColor(Self.color(0xc8def6, alpha * g * 0.47)); context.strokePath()
+                }
+                let size: CGFloat = i % 7 == 0 ? 2.2 : 1.3
+                context.setFillColor(Self.color(0xe2eefc, alpha * 0.75))
+                context.fillEllipse(in: CGRect(x: point.x - size / 2, y: point.y - size / 2, width: size, height: size))
+            }
+            let fall = (t * 0.32).truncatingRemainder(dividingBy: 1)
+            let alpha = sin(.pi * fall) * particleVisibility * max(0, particleDirection)
+            let head = CGPoint(x: -126 + fall * 99, y: -88 + fall * 66)
+            for i in 0..<10 {
+                let f = CGFloat(i) / 10, g = CGFloat(i + 1) / 10
+                context.beginPath()
+                context.move(to: CGPoint(x: head.x - 26 * (1 - f), y: head.y - 20 * (1 - f)))
+                context.addLine(to: CGPoint(x: head.x - 26 * (1 - g), y: head.y - 20 * (1 - g)))
+                context.setLineWidth(1); context.setStrokeColor(Self.color(0xdaebfe, alpha * g * 0.65)); context.strokePath()
+            }
+            context.setFillColor(Self.color(0xebf6ff, alpha * 0.85))
+            context.setShadow(offset: .zero, blur: 5, color: Self.color(0xc1ddfa, alpha))
+            context.fillEllipse(in: CGRect(x: head.x - 1.2, y: head.y - 1.2, width: 2.4, height: 2.4))
+            context.restoreGState()
+        }
+        context.saveGState()
+        context.rotate(by: -0.1)
+        context.setStrokeColor(Self.color(0xafc4dc, 0.41)); context.setLineWidth(0.8)
+        context.strokeEllipse(in: CGRect(x: -148, y: -77, width: 296, height: 154))
+        let orbitAngle = rotationClock * 0.34
+        for i in 0..<60 {
+            let q = orbitAngle - CGFloat(i) * 0.008 * tailDirection
+            context.beginPath()
+            context.move(to: CGPoint(x: cos(q) * 148, y: sin(q) * 77))
+            context.addLine(to: CGPoint(x: cos(q + 0.011) * 148, y: sin(q + 0.011) * 77))
+            context.setStrokeColor(Self.color(0xd9e8f9, (1 - CGFloat(i) / 60) * 0.88 * glow))
+            context.setLineWidth(0.9 + (1 - CGFloat(i) / 60) * 0.8)
+            context.strokePath()
+        }
+        context.restoreGState()
+        context.drawRadialGradient(Self.atmosphere, startCenter: .zero, startRadius: r - 2,
+                                   endCenter: .zero, endRadius: r + 12, options: [])
+        context.saveGState()
+        context.addEllipse(in: CGRect(x: -r, y: -r, width: r * 2, height: r * 2)); context.clip()
+        context.drawRadialGradient(Self.body, startCenter: CGPoint(x: -24, y: -30), startRadius: 0,
+                                   endCenter: CGPoint(x: 16, y: 20), endRadius: r * 1.5, options: [.drawsAfterEndLocation])
+        context.saveGState()
+        context.setBlendMode(.screen)
+        for i in 0..<7 {
+            let u = t * 0.16 + CGFloat(i) * 1.9
+            context.saveGState()
+            context.translateBy(x: sin(u) * r * 0.3, y: cos(u * 0.8 + CGFloat(i)) * r * 0.39)
+            context.rotate(by: u * 0.55 + CGFloat(i))
+            context.scaleBy(x: 1, y: 0.33 + 0.09 * sin(u))
+            context.setAlpha((dimmed ? 0.08 : 1) * (0.65 + e * 0.45))
+            context.drawRadialGradient(Self.fog, startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: r * 0.95, options: [])
+            context.restoreGState()
+        }
+        context.restoreGState()
+        let yaw = rotationClock * 0.15, tilt = -0.42 + 0.1 * sin(t * 0.14)
+        let ct = cos(tilt), st = sin(tilt)
+        func project(_ lat: CGFloat, _ lon: CGFloat) -> (point: CGPoint, z: CGFloat) {
+            let swirl = 0.1 * sin(lon * 3 + t * 0.6) + (0.025 + e * 0.025) * sin(lon * 7 - t * 0.8)
+            let la = lat + swirl * cos(lat), lo = lon + yaw
+            let x = r * 0.96 * cos(la) * sin(lo), y = r * 0.96 * sin(la)
+            return (CGPoint(x: x * ct - y * st, y: x * st + y * ct), cos(la) * cos(lo))
+        }
+        for j in 0..<22 {
+            let lat = -1.43 + CGFloat(j) / 21 * 2.86
+            let front = CGMutablePath(), back = CGMutablePath()
+            var wasFront: Bool?
+            for k in 0...112 {
+                let p = project(lat, CGFloat(k) / 112 * .pi * 2)
+                let isFront = p.z > 0, path = isFront ? front : back
+                if wasFront != isFront { path.move(to: p.point) } else { path.addLine(to: p.point) }
+                wasFront = isFront
+            }
+            context.addPath(front); context.setLineWidth(3.8 + e * 2)
+            context.setStrokeColor(Self.color(0x99b7d8, (0.028 + e * 0.018) * glow)); context.strokePath()
+            context.addPath(back); context.setLineWidth(0.46)
+            context.setStrokeColor(Self.color(0x8da6c0, 0.063)); context.strokePath()
+            context.addPath(front); context.setStrokeColor(Self.color(0xb7cfea, (0.18 + e * 0.14) * glow)); context.strokePath()
+        }
+        for i in 0..<105 {
+            let sequence = (CGFloat(i) * 0.6180339887).truncatingRemainder(dividingBy: 1)
+            let p = project(asin(-0.96 + 1.92 * sequence), CGFloat(i) * 2.399963 + t * 0.025)
+            guard p.z >= -0.1 else { continue }
+            let radius: CGFloat = i % 11 == 0 ? 1.05 : 0.48
+            context.setFillColor(Self.color(0xd5e5f8, (0.14 + e * 0.25) * max(0.12, p.z) * glow))
+            context.fillEllipse(in: CGRect(x: p.point.x - radius, y: p.point.y - radius, width: radius * 2, height: radius * 2))
+        }
+        context.drawLinearGradient(Self.shade, start: CGPoint(x: -r, y: -r), end: CGPoint(x: r, y: r * 0.7), options: [.drawsAfterEndLocation])
+        context.restoreGState()
+        context.setLineWidth(0.55); context.setStrokeColor(Self.color(0x99adc4, 0.22))
+        context.strokeEllipse(in: CGRect(x: -r, y: -r, width: r * 2, height: r * 2))
+        context.beginPath(); context.addArc(center: .zero, radius: r, startAngle: .pi * 0.91, endAngle: .pi * 1.86, clockwise: false)
+        context.setLineWidth(0.8); context.setStrokeColor(Self.color(0xd0e3f9, (0.48 + e * 0.22) * glow))
+        context.setShadow(offset: .zero, blur: 3 + e * 3, color: Self.color(0xc0deff, 0.5))
+        context.strokePath()
+        context.restoreGState()
     }
 }

@@ -22,7 +22,7 @@ enum LabTranslator {
     // Sign in with ChatGPT requires store=false, stream=true, and array input.
     // For consistent comparison paid API uses the same SSE protocol.
     static func translate(_ text: String, source: String, target: String, model: String,
-                          bearerToken: String) async throws -> String {
+                          bearerToken: String, billable: Bool = false) async throws -> String {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { throw TranslationError.emptyInput }
         guard !model.isEmpty else { throw TranslationError.missingModel }
@@ -54,6 +54,13 @@ enum LabTranslator {
         request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
+        var accounted = false
+        var rejected = false
+        let fallbackID = UUID().uuidString
+        defer {
+            if billable && !accounted && !rejected { LabSpendJournal.record(id: fallbackID, model: model, usage: nil, apiKey: bearerToken) }
+        }
+
         let (bytes, reply) = try await URLSession.shared.bytes(for: request)
         try Task.checkCancellation()
         let http = reply as? HTTPURLResponse
@@ -61,6 +68,7 @@ enum LabTranslator {
         let requestID = http?.value(forHTTPHeaderField: "x-request-id")
 
         guard status == 200 else {
+            rejected = true
             // Admission failures can be {"detail": "..."} instead of {"error": {...}}.
             // Preserve the diagnostic code and request ID without exposing credentials.
             var raw = ""
@@ -91,6 +99,12 @@ enum LabTranslator {
             guard let data = value.data(using: .utf8),
                   let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 continue
+            }
+            if billable, !accounted, ["response.completed", "response.failed", "response.incomplete"].contains(event["type"] as? String ?? "") {
+                let response = event["response"] as? [String: Any] ?? [:]
+                LabSpendJournal.record(id: response["id"] as? String ?? fallbackID,
+                    model: model, usage: response["usage"] as? [String: Any], apiKey: bearerToken)
+                accounted = true
             }
             try stream.ingest(event)
             if stream.completed { break }

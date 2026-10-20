@@ -5,16 +5,16 @@ enum LabResonancePhase: CaseIterable, Equatable, Sendable {
 
     var style: LabResonanceStyle {
         switch self {
-        case .idle: return .init(lap: 12, tail: 0.10, light: 0.38, halo: 0.16, cloud: 0.40, breath: 9)
-        case .input: return .init(lap: 3.8, tail: 0.18, light: 0.88, halo: 0.30, cloud: 0.58, breath: 6)
-        case .processing: return .init(lap: 2.6, tail: 0.28, light: 0.80, halo: 0.38, cloud: 0.62, breath: 3.4)
-        case .output: return .init(lap: -5.2, tail: 0.24, light: 0.94, halo: 0.25, cloud: 0.66, breath: 7)
+        case .idle: return .init(lap: 12, tail: 0.10, light: 0.38, halo: 0.14, cloud: 0.10, breath: 6)
+        case .input: return .init(lap: 3.8, tail: 0.18, light: 0.88, halo: 0.26, cloud: 0.18, breath: 2.8)
+        case .processing: return .init(lap: 2.6, tail: 0.28, light: 0.80, halo: 0.32, cloud: 0.15, breath: 2.2)
+        case .output: return .init(lap: -5.2, tail: 0.24, light: 0.94, halo: 0.22, cloud: 0.20, breath: 3.8)
         }
     }
 }
 
 /// Motion direction and tempo distinguish phases even in silent passages.
-/// These are provisional until the original CONCEPT 03 source is available.
+/// Shared stage tempo and contrast for the graphite orbital renderer.
 struct LabResonanceStyle {
     let lap: Double
     let tail: Double

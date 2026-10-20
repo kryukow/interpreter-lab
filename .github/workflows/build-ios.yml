@@ -72,13 +72,13 @@ jobs:
           PY
       - name: Validate ElevenLabs voice and billing boundaries
         run: |
-          swiftc App/LabElevenAPI.swift Tests/ElevenAPITests.swift -o "$RUNNER_TEMP/eleven-tests"
+          swiftc App/LabElevenAPI.swift App/LabElevenCatalog.swift App/LabBudgetEvents.swift Tests/ElevenAPITests.swift -o "$RUNNER_TEMP/eleven-tests"
           "$RUNNER_TEMP/eleven-tests"
           python3 - <<'PY'
           from pathlib import Path
           client = Path("App/LabElevenAPI.swift").read_text()
           session = Path("App/LabSession.swift").read_text()
-          settings = Path("App/InterpreterLabApp.swift").read_text()
+          settings = Path("App/LabSettings.swift").read_text()
           keychain = Path("App/LabElevenKeychain.swift").read_text()
           assert "api.elevenlabs.io/v2/voices" in client
           assert "api.elevenlabs.io/v1/text-to-speech/" in client
@@ -108,38 +108,37 @@ jobs:
           "$RUNNER_TEMP/lab-style-tests"
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Verify byte-identical Live visual assets
+      - name: Verify approved sphere and independent application assets
         run: |
-          test "$(git hash-object App/Assets.xcassets/AppIcon.appiconset/AppIcon.png)" = "1d73c2940a09f8c075691f5ee31220661f77a1f5"
-          test "$(git hash-object App/PressButton.swift)" = "138bcc67ffd0aff8c3f22d384eed3bc726e2270b"
+          test "$(git hash-object App/Assets.xcassets/AppIcon.appiconset/AppIcon.png)" = "792f8559578aebe46bfd06ec08f2fb0d74fc84ed"
           test "$(git hash-object App/PartnerLanguage.swift)" = "b0fb10c6b714adb6f3ce66a7d0760b0d35d8a44d"
           test "$(git hash-object App/MicrophoneWaveform.swift)" = "3de2400c0d5a2a291ae7752c0ce18c0d48d14aa0"
           python3 - <<'PY'
           from pathlib import Path
-          ui = Path("App/InterpreterLabApp.swift").read_text()
+          ui = Path("App/LabView.swift").read_text()
           assert "PressButton(title: title" in ui
           assert "LabGraphiteSignalView(" in ui
           assert "signal: model.visualSignal" in ui
-          assert "LabWaveformSignalView(signal: model.visualSignal, recording: model.phase == .recording || model.phase == .playing)" in ui
+          assert "LabWaveformSignalView(" not in ui
+          assert 'Text("Русский ↔")' not in ui
+          assert "LabGraphiteSelectionSheet(" in ui
           resonance = Path("App/LabGraphiteResonance.swift").read_text()
           assert "UIViewRepresentable" in resonance
-          assert "UIGraphicsImageRenderer" in resonance and "CABasicAnimation" in resonance
-          assert "ribbonWidth: CGFloat = 188" in resonance
-          assert "ribbonHeight: CGFloat = 112" in resonance
-          assert "TimelineView(" not in resonance and "Canvas(" not in resonance
-          assert ".blur(" not in resonance
-          assert "GraphiteResonanceSurface" in resonance
-          assert "makeConcept03InfinityPath" in resonance
-          assert "controlPoint1: p(162, 99), controlPoint2: p(145, 82)" in resonance
-          assert "size.width * 0.65, height: size.height * 0.48" in resonance
-          assert "animateLight(glint, lap: 4.0)" in resonance
-          assert "cloudLeft.transform" in resonance
-          assert "softRadialImage" in resonance
-          assert "graphiteDepth" in resonance
-          assert "haloTracer" in resonance
-          assert "breathingOval" in resonance
-          assert "ovalLightOrbit" in resonance
-          assert "glint.opacity = active ? Float(0.82 + 0.18 * highs) : 0" in resonance
+          assert "CADisplayLink" in resonance
+          assert "maximumFramesPerSecond" in resonance
+          speech = Path("App/LabOpenAISpeech.swift").read_text()
+          assert '"gpt-realtime-2.1"' in speech and '"gpt-realtime-2.1-mini"' in speech
+          assert "wss://api.openai.com/v1/realtime" in speech
+          assert "response.output_audio.delta" in speech
+          assert "openAISpeechAutoGenerate" in Path("App/LabSession.swift").read_text()
+          assert "targetEnergy" in resonance
+          assert "UIApplication.didBecomeActiveNotification" in resonance
+          assert "UIApplication.didEnterBackgroundNotification" in resonance
+          assert "makeConcept03InfinityPath" not in resonance
+          assert "TimelineView(" not in resonance
+          button = Path("App/PressButton.swift").read_text()
+          assert "GraphitePressControl" in button
+          assert "touchDown" in button and "touchCancel" in button
           audio = Path("App/LabSpeechExporter.swift").read_text()
           assert "synth.write(utterance)" in audio
           assert "LabPlaybackSpectrum" in audio
@@ -148,15 +147,15 @@ jobs:
           assert "lastMicrophoneVisualUpdate >= 0.05" in session
           assert "milliseconds(50)" in session
           assert "playRegularAppleVoice" in session
-          assert "private var languageDrag: some Gesture" in ui
-          assert ".animation(.spring(response: 0.33, dampingFraction: 0.83), value: orbitActive)" in ui
-          assert ".animation(.spring(response: 0.29, dampingFraction: 0.85), value: partnerCode)" in ui
-          assert "model.setPartner(choice)" in ui
-          assert 'Section("Экспериментальный режим")' not in ui
-          assert 'Section("О приложении")' not in ui
-          assert "if model.chatGPTAccount.isEmpty {" in ui
-          assert ".navigationBarTitleDisplayMode(.inline)" in ui
-          print("Original Live 1.4.23 animation sources and settings verified")
+          assert "model.setPartner" in ui
+          settings = Path("App/LabSettings.swift").read_text()
+          assert "LabSettingsCard" in settings
+          assert "if model.chatGPTAccount.isEmpty {" in settings
+          assert ".navigationBarTitleDisplayMode(.inline)" in settings
+          console = Path("App/LabTranscriptConsole.swift").read_text()
+          assert "LabFollowingTextView" in console and "contentSize.height - bounds.height" in console
+          assert "LabLiveTextView" in console
+          print("Independent artwork, lifecycle and transcription UI checked")
           PY
       - name: Generate iOS project
         run: xcodegen generate
@@ -179,19 +178,21 @@ jobs:
           app = Path(os.environ["RUNNER_TEMP"]) / "LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app"
           info = plistlib.loads((app / "Info.plist").read_bytes())
           assert info["CFBundleIdentifier"] == "org.interpreter.lab"
-          assert info["CFBundleShortVersionString"] == "0.5.0"
+          assert info["CFBundleShortVersionString"] == "0.7.0"
+          assert info["CFBundleVersion"] == "19"
+          assert info["CADisableMinimumFrameDurationOnPhone"] is True
           assert info["NSMicrophoneUsageDescription"]
           assert info["NSSpeechRecognitionUsageDescription"]
           print("Verified Interpreter Lab iOS .app bundle")
           PY
           mkdir -p "$RUNNER_TEMP/lab-package/Payload"
           cp -R "$RUNNER_TEMP/LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app" "$RUNNER_TEMP/lab-package/Payload/"
-          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.5.0-Unsigned.ipa" Payload)
-          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.5.0-Unsigned.ipa"
+          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.7.0-Build19-Unsigned.ipa" Payload)
+          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.7.0-Build19-Unsigned.ipa"
       - uses: actions/upload-artifact@v4
         with:
-          name: Interpreter-Lab-0.5.0-Unsigned-iPhone
-          path: ${{ runner.temp }}/Interpreter-Lab-0.5.0-Unsigned.ipa
+          name: Interpreter-Lab-0.7.0-Build19-Unsigned-iPhone
+          path: ${{ runner.temp }}/Interpreter-Lab-0.7.0-Build19-Unsigned.ipa
           if-no-files-found: error
           retention-days: 7
       - name: Run renderer in iOS Simulator
@@ -210,4 +211,16 @@ jobs:
         with:
           name: Graphite-Renderer-Test-Results
           path: ${{ runner.temp }}/GraphiteRenderer.xcresult
+          if-no-files-found: warn
+      - name: Export UI snapshots
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/GraphiteRenderer.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/GraphiteRenderer.xcresult" --output-path "$RUNNER_TEMP/UI-Snapshots"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Interpreter-Lab-UI-Snapshots
+          path: ${{ runner.temp }}/UI-Snapshots
           if-no-files-found: warn

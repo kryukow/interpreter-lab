@@ -3,9 +3,27 @@ import Foundation
 struct LabElevenVoice: Decodable, Identifiable, Hashable {
     let voiceID: String
     let name: String
+    let previewURL: String?
+    let verifiedLanguages: [LabSharedVoice.Sample]?
+    let labels: [String: String]?
+
+    func preview(for languageCode: String) -> URL? {
+        let candidate = verifiedLanguages?.first {
+            LabVoiceLanguage.matches($0.language, languageCode) && LabVoiceLanguage.secureURL($0.previewURL) != nil
+        }?.previewURL
+        return LabVoiceLanguage.secureURL(candidate) ?? LabVoiceLanguage.secureURL(previewURL)
+    }
+
+    func sampleIsInLanguage(_ code: String) -> Bool {
+        verifiedLanguages?.contains {
+            LabVoiceLanguage.matches($0.language, code) && LabVoiceLanguage.secureURL($0.previewURL) != nil
+        } == true
+    }
+
     var id: String { voiceID }
     enum CodingKeys: String, CodingKey {
-        case voiceID = "voice_id", name
+        case voiceID = "voice_id", name, labels
+        case previewURL = "preview_url", verifiedLanguages = "verified_languages"
     }
 }
 
@@ -45,6 +63,7 @@ enum LabElevenAPI {
             request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             let (data, response) = try await URLSession.shared.data(for: request)
+            try Task.checkCancellation()
             try check(data, response)
             let page = try JSONDecoder().decode(VoicesPage.self, from: data)
             all.append(contentsOf: page.voices)
@@ -83,6 +102,7 @@ enum LabElevenAPI {
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "text": message, "model_id": modelID
         ])
+        defer { NotificationCenter.default.post(name: LabBudgetEvents.elevenCharged, object: nil) }
         let (bytes, response) = try await URLSession.shared.data(for: request)
         try Task.checkCancellation()
         try check(bytes, response)

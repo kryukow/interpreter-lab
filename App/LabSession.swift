@@ -43,6 +43,18 @@ import SwiftUI
     @Published var speechEngine: String = UserDefaults.standard.string(forKey: "lab.speechEngine") ?? "apple" {
         didSet { UserDefaults.standard.set(speechEngine, forKey: "lab.speechEngine") }
     }
+    @Published var openAISpeechAutoGenerate = UserDefaults.standard.bool(forKey: "lab.openAISpeechAutoGenerate") {
+        didSet { UserDefaults.standard.set(openAISpeechAutoGenerate, forKey: "lab.openAISpeechAutoGenerate") }
+    }
+    @Published var openAISpeechModel = UserDefaults.standard.string(forKey: "lab.openAISpeechModel") ?? LabOpenAISpeech.model {
+        didSet { UserDefaults.standard.set(openAISpeechModel, forKey: "lab.openAISpeechModel") }
+    }
+    @Published var openAIRussianVoice = UserDefaults.standard.string(forKey: "lab.openAIVoice.ru") ?? "marin" {
+        didSet { UserDefaults.standard.set(openAIRussianVoice, forKey: "lab.openAIVoice.ru") }
+    }
+    @Published var openAIPartnerVoice = "cedar" {
+        didSet { UserDefaults.standard.set(openAIPartnerVoice, forKey: "lab.openAIVoice.\(partner.rawValue)") }
+    }
     @Published var elevenAutoGenerate: Bool = UserDefaults.standard.bool(forKey: "lab.elevenAutoGenerate") {
         didSet { UserDefaults.standard.set(elevenAutoGenerate, forKey: "lab.elevenAutoGenerate") }
     }
@@ -85,6 +97,11 @@ import SwiftUI
     var canBegin: Bool { phase == .idle || phase == .playing }
     var canReplay: Bool { !translation.isEmpty && phase == .idle }
     var replayCaption: String {
+        if speechEngine == "openai" {
+            let voice = translationTarget == "ru" ? openAIRussianVoice : UserDefaults.standard.string(forKey: "lab.openAIVoice.\(translationTarget)") ?? "cedar"
+            let cached = cachedEleven?.text == translation && cachedEleven?.modelID == openAISpeechModel && cachedEleven?.voiceID == voice
+            return cached ? "Прослушать снова · без нового API-запроса" : "Озвучить OpenAI · расход API"
+        }
         if speechEngine != "elevenlabs" { return "Прослушать снова · Apple TTS бесплатно" }
         let voice = translationTarget == "ru" ? elevenRussianVoice :
             UserDefaults.standard.string(forKey: "lab.elevenVoice.\(translationTarget)") ?? ""
@@ -103,6 +120,7 @@ import SwiftUI
         super.init()
         selectedPartnerVoiceID = UserDefaults.standard.string(forKey: "lab.voice.\(partner.rawValue)") ?? ""
         elevenPartnerVoice = UserDefaults.standard.string(forKey: "lab.elevenVoice.\(partner.rawValue)") ?? ""
+        openAIPartnerVoice = UserDefaults.standard.string(forKey: "lab.openAIVoice.\(partner.rawValue)") ?? "cedar"
         refreshElevenKey()
         speaker.delegate = self
         refreshKey()
@@ -131,18 +149,20 @@ import SwiftUI
     }
 
     func refreshKey() { keySaved = (try? LabKeychain.load()) != nil }
-    func saveKey(_ key: String) throws { try LabKeychain.save(key); refreshKey() }
-    func deleteKey() throws { try LabKeychain.delete(); refreshKey() }
+    func saveKey(_ key: String) throws { try LabKeychain.save(key); refreshKey(); NotificationCenter.default.post(name: LabBudgetEvents.credentialsChanged, object: nil) }
+    func deleteKey() throws { try LabKeychain.delete(); refreshKey(); NotificationCenter.default.post(name: LabBudgetEvents.credentialsChanged, object: nil) }
 
     func refreshElevenKey() { elevenKeySaved = (try? LabElevenKeychain.load()) != nil }
     func saveElevenKey(_ value: String) throws {
         try LabElevenKeychain.save(value)
+        NotificationCenter.default.post(name: LabBudgetEvents.credentialsChanged, object: nil)
         refreshElevenKey()
         elevenVoices = []
         clearCachedEleven()
     }
     func deleteElevenKey() throws {
         try LabElevenKeychain.delete()
+        NotificationCenter.default.post(name: LabBudgetEvents.credentialsChanged, object: nil)
         refreshElevenKey()
         elevenVoices = []
         elevenRussianVoice = ""
@@ -153,6 +173,9 @@ import SwiftUI
     func loadElevenVoices() async throws {
         guard let key = try LabElevenKeychain.load() else { throw LabElevenAPI.Error.noKey }
         elevenVoices = try await LabElevenAPI.voices(apiKey: key)
+        var names = UserDefaults.standard.dictionary(forKey: "lab.elevenVoiceNames") as? [String: String] ?? [:]
+        for voice in elevenVoices { names[voice.voiceID] = voice.name }
+        UserDefaults.standard.set(names, forKey: "lab.elevenVoiceNames")
     }
 
     /// Browsing and listening to public demos is read-only and does not call
@@ -175,6 +198,9 @@ import SwiftUI
             throw LabElevenCatalogAPI.CatalogError.missingKey
         }
         let newID = try await LabElevenCatalogAPI.addToAccount(apiKey: key, voice: voice)
+        var names = UserDefaults.standard.dictionary(forKey: "lab.elevenVoiceNames") as? [String: String] ?? [:]
+        names[newID] = voice.name
+        UserDefaults.standard.set(names, forKey: "lab.elevenVoiceNames")
         if language == "ru" {
             elevenRussianVoice = newID
         } else if partner.rawValue == language {
@@ -201,6 +227,7 @@ import SwiftUI
         partner = choice
         selectedPartnerVoiceID = UserDefaults.standard.string(forKey: "lab.voice.\(choice.rawValue)") ?? ""
         elevenPartnerVoice = UserDefaults.standard.string(forKey: "lab.elevenVoice.\(choice.rawValue)") ?? ""
+        openAIPartnerVoice = UserDefaults.standard.string(forKey: "lab.openAIVoice.\(choice.rawValue)") ?? "cedar"
         language = "ru"
         source = ""
         translation = ""
@@ -276,7 +303,7 @@ import SwiftUI
                 }
                 self.recordingStarted = Date()
                 self.phase = .recording
-                self.message = "Говори → отпусти для перевода"
+                self.message = "Слушаю · отпусти для перевода"
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } catch {
                 guard self.generation == token else { return }
@@ -299,7 +326,7 @@ import SwiftUI
         elapsed = Date().timeIntervalSince(recordingStarted)
         phase = .recognizing
         visualBands = .silence
-        message = "Микрофон выключен · завершаю распознавание"
+        message = "Завершаю распознавание…"
         capture.finish()
     }
 
@@ -338,7 +365,7 @@ import SwiftUI
         clearCachedSpeech()
         clearCachedEleven()
         phase = .translating
-        message = "OpenAI · перевожу готовую фразу"
+        message = "Перевожу…"
         detail = "\(from == "ru" ? "Русский → \(partner.name)" : "\(partner.name) → Русский") · \(model) · \(selectedSource == "chatgpt" ? "ChatGPT" : "API")"
         operation = Task { [weak self] in
             guard let self else { return }
@@ -356,12 +383,13 @@ import SwiftUI
                     }
                     bearer = key
                 }
-                let value = try await LabTranslator.translate(input, source: from, target: self.translationTarget, model: model, bearerToken: bearer)
+                let value = try await LabTranslator.translate(input, source: from, target: self.translationTarget, model: model, bearerToken: bearer, billable: self.authSource == "api")
                 guard self.generation == token && !Task.isCancelled else { return }
                 self.translation = value
                 self.phase = .idle
                 let automatic = self.autoSpeak &&
-                    (self.speechEngine != "elevenlabs" || self.elevenAutoGenerate)
+                    (self.speechEngine != "elevenlabs" || self.elevenAutoGenerate) &&
+                    (self.speechEngine != "openai" || self.openAISpeechAutoGenerate)
                 self.message = "Перевод готов · \(automatic ? "озвучиваю" : "нажми «Прослушать»")"
                 if automatic { self.speak() }
             } catch {
@@ -385,24 +413,29 @@ import SwiftUI
             UserDefaults.standard.string(forKey: "lab.voice.\(translationTarget)") ?? ""
         utterance.voice = AVSpeechSynthesisVoice(identifier: storedID)
             ?? AVSpeechSynthesisVoice(language: PartnerLanguage.voiceLocale(for: translationTarget))
-        guard let voice = utterance.voice else {
-            phase = .idle
-            message = "Голос Apple для этого языка недоступен. Установи его в настройках iPhone."
-            return
-        }
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         utterance.pitchMultiplier = 1.0
         visualBands = .silence
 
+        if speechEngine == "openai" {
+            playElevenSpeech(fallback: utterance, openAI: true)
+            return
+        }
         if speechEngine == "elevenlabs" {
             playElevenSpeech(fallback: utterance)
+            return
+        }
+
+        guard let voice = utterance.voice else {
+            phase = .idle
+            message = "Голос Apple для этого языка недоступен. Установи его в настройках iPhone."
             return
         }
 
         // Exact rendered Apple speech PCM drives both the sound and the animation.
         // Keep the original speak() API as a safe fallback if offline rendering fails.
         phase = .preparingVoice
-        message = "Apple TTS · подготавливаю звук для визуализации"
+        message = "Подготавливаю голос…"
         let token = generation
         let text = translation
         operation?.cancel()
@@ -455,7 +488,7 @@ import SwiftUI
                 self.outputPlayer = player
                 self.outputSpectrum = spectrum
                 self.phase = .playing
-                self.message = "Звучит перевод · Graphite реагирует на Apple TTS"
+                self.message = "Звучит перевод"
                 self.startPlaybackMeter(token: token, player: player, spectrum: spectrum)
             } catch {
                 guard self.generation == token && !Task.isCancelled else { return }
@@ -464,20 +497,22 @@ import SwiftUI
         }
     }
 
-    private func playElevenSpeech(fallback utterance: AVSpeechUtterance) {
+    private func playElevenSpeech(fallback utterance: AVSpeechUtterance, openAI: Bool = false) {
         let token = generation
         let target = translationTarget
-        let voiceID = target == "ru" ? elevenRussianVoice :
-            UserDefaults.standard.string(forKey: "lab.elevenVoice.\(target)") ?? ""
+        let voiceID = openAI
+            ? (target == "ru" ? openAIRussianVoice : UserDefaults.standard.string(forKey: "lab.openAIVoice.\(target)") ?? "cedar")
+            : (target == "ru" ? elevenRussianVoice : UserDefaults.standard.string(forKey: "lab.elevenVoice.\(target)") ?? "")
         let text = translation
-        let model = elevenModel
-        guard elevenKeySaved, !voiceID.isEmpty else {
+        let model = openAI ? openAISpeechModel : elevenModel
+        let provider = openAI ? "OpenAI TTS" : "ElevenLabs"
+        guard (openAI ? keySaved : elevenKeySaved), !voiceID.isEmpty else {
             playRegularAppleVoice(utterance, token: token)
-            message = "Настрой ElevenLabs: ключ и голос \(target). Пока звучит Apple TTS."
+            message = "Настрой \(provider): API-ключ и голос \(target). Пока звучит Apple TTS."
             return
         }
         phase = .preparingVoice
-        message = "ElevenLabs · создаю озвучивание (расходуются кредиты)"
+        message = "\(provider) · подготавливаю озвучивание"
         operation?.cancel()
         operation = Task { [weak self] in
             guard let self else { return }
@@ -487,9 +522,13 @@ import SwiftUI
                    cached.voiceID == voiceID, cached.modelID == model {
                     url = cached.url
                 } else {
-                    guard let key = try LabElevenKeychain.load() else { throw LabElevenAPI.Error.noKey }
-                    url = try await LabElevenAPI.synthesize(
-                        text: text, voiceID: voiceID, modelID: model, apiKey: key)
+                    if openAI {
+                        guard let key = try LabKeychain.load() else { throw LabOpenAISpeech.SpeechError.noKey }
+                        url = try await LabOpenAISpeech.synthesize(text: text, voice: voiceID, apiKey: key, modelID: model)
+                    } else {
+                        guard let key = try LabElevenKeychain.load() else { throw LabElevenAPI.Error.noKey }
+                        url = try await LabElevenAPI.synthesize(text: text, voiceID: voiceID, modelID: model, apiKey: key)
+                    }
                     guard self.generation == token && !Task.isCancelled else {
                         try? FileManager.default.removeItem(at: url)
                         return
@@ -505,17 +544,17 @@ import SwiftUI
                 player.isMeteringEnabled = true
                 player.delegate = self
                 guard player.prepareToPlay(), player.play() else {
-                    throw Failure.message("Не удалось воспроизвести MP3 ElevenLabs.")
+                    throw Failure.message("Не удалось воспроизвести аудио \(provider).")
                 }
                 self.outputPlayer = player
                 self.phase = .playing
-                self.message = "Звучит ElevenLabs · \(model == LabElevenModels.fast ? "Flash v2.5" : "Multilingual v2")"
+                self.message = "Звучит \(provider) · \(openAI ? voiceID.capitalized : model == LabElevenModels.fast ? "Flash v2.5" : "Multilingual v2")"
                 self.startElevenMeter(token: token, player: player)
             } catch {
                 guard self.generation == token && !Task.isCancelled else { return }
                 let failure = error.localizedDescription
                 self.playRegularAppleVoice(utterance, token: token)
-                self.message = "ElevenLabs: \(failure). Звучит резервный Apple TTS."
+                self.message = "\(provider): \(failure). Звучит резервный Apple TTS."
             }
         }
     }

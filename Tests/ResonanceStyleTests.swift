@@ -15,6 +15,6 @@ import Foundation
         precondition(LabResonancePhase.input.style.lap > 0)
         precondition(LabResonancePhase.output.style.lap < 0)
         precondition(LabResonancePhase.processing.style.breath < LabResonancePhase.idle.style.breath)
-        print("Phase contracts passed; visual parity requires original CONCEPT 03")
+        print("Graphite orbital phase contracts passed")
     }
 }
