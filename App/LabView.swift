@@ -5,6 +5,7 @@ struct LabView: View {
     @StateObject private var model = LabSession()
     @State private var settings = false
     @State private var languagePicker = false
+    @State private var budgetSheet = false
     @AppStorage("lab.keepAwake") private var keepAwake = true
     @AppStorage("lab.partnerLanguage") private var partnerCode = "de"
     @Environment(\.scenePhase) private var scenePhase
@@ -27,8 +28,9 @@ struct LabView: View {
                 ScrollView {
                     VStack(spacing: 12) {
                         header.padding(.top, 10)
+                        LabBudgetMeter(model: model) { budgetSheet = true }
                         LabGraphiteSignalView(signal: model.visualSignal,
-                                              phase: resonancePhase, orbitActive: settings || languagePicker)
+                                              phase: resonancePhase, orbitActive: settings || languagePicker || budgetSheet)
                             .frame(height: min(235, max(150, geometry.size.height * 0.29)))
                             .accessibilityHidden(true)
                         status
@@ -58,6 +60,7 @@ struct LabView: View {
         }
         .tint(.white)
         .sheet(isPresented: $settings) { LabSettings(model: model) }
+        .sheet(isPresented: $budgetSheet) { LabBudgetSheet(model: model) }
         .sheet(isPresented: $languagePicker) {
             LabGraphiteSelectionSheet(
                 title: "Язык собеседника",
@@ -77,6 +80,10 @@ struct LabView: View {
         .onChange(of: scenePhase) { _, phase in
             updateAwake()
             if phase != .active { model.stopAll() }
+            else {
+                LabAccountBudget.shared.reloadLedger()
+                if model.speechEngine == "elevenlabs" { Task { await LabAccountBudget.shared.refreshEleven() } }
+            }
         }
     }
 
