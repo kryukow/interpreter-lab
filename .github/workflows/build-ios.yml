@@ -110,7 +110,7 @@ jobs:
         run: brew install xcodegen
       - name: Verify approved sphere and independent application assets
         run: |
-          test "$(git hash-object App/Assets.xcassets/AppIcon.appiconset/AppIcon.png)" = "1d73c2940a09f8c075691f5ee31220661f77a1f5"
+          test "$(git hash-object App/Assets.xcassets/AppIcon.appiconset/AppIcon.png)" = "792f8559578aebe46bfd06ec08f2fb0d74fc84ed"
           test "$(git hash-object App/PartnerLanguage.swift)" = "b0fb10c6b714adb6f3ce66a7d0760b0d35d8a44d"
           test "$(git hash-object App/MicrophoneWaveform.swift)" = "3de2400c0d5a2a291ae7752c0ce18c0d48d14aa0"
           python3 - <<'PY'
@@ -179,7 +179,7 @@ jobs:
           info = plistlib.loads((app / "Info.plist").read_bytes())
           assert info["CFBundleIdentifier"] == "org.interpreter.lab"
           assert info["CFBundleShortVersionString"] == "0.7.0"
-          assert info["CFBundleVersion"] == "18"
+          assert info["CFBundleVersion"] == "19"
           assert info["CADisableMinimumFrameDurationOnPhone"] is True
           assert info["NSMicrophoneUsageDescription"]
           assert info["NSSpeechRecognitionUsageDescription"]
@@ -187,12 +187,12 @@ jobs:
           PY
           mkdir -p "$RUNNER_TEMP/lab-package/Payload"
           cp -R "$RUNNER_TEMP/LabDevice/Build/Products/Release-iphoneos/InterpreterLab.app" "$RUNNER_TEMP/lab-package/Payload/"
-          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.7.0-Build18-Unsigned.ipa" Payload)
-          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.7.0-Build18-Unsigned.ipa"
+          (cd "$RUNNER_TEMP/lab-package" && zip -qry "$RUNNER_TEMP/Interpreter-Lab-0.7.0-Build19-Unsigned.ipa" Payload)
+          unzip -t "$RUNNER_TEMP/Interpreter-Lab-0.7.0-Build19-Unsigned.ipa"
       - uses: actions/upload-artifact@v4
         with:
-          name: Interpreter-Lab-0.7.0-Build18-Unsigned-iPhone
-          path: ${{ runner.temp }}/Interpreter-Lab-0.7.0-Build18-Unsigned.ipa
+          name: Interpreter-Lab-0.7.0-Build19-Unsigned-iPhone
+          path: ${{ runner.temp }}/Interpreter-Lab-0.7.0-Build19-Unsigned.ipa
           if-no-files-found: error
           retention-days: 7
       - name: Run renderer in iOS Simulator
