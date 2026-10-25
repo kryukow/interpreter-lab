@@ -57,6 +57,23 @@ final class BudgetTests: XCTestCase {
         XCTAssertFalse(defaults.dictionaryRepresentation().keys.contains { $0.contains("fixture-account") })
     }
 
+    func testTranscriptionRestoreDeduplicatesAndKeepsOriginalCredentialScope() throws {
+        let suite = "TranscriptionBudgetTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        LabSpendJournal.anchor(10, apiKey: "old-key", defaults: defaults)
+        LabSpendJournal.anchor(20, apiKey: "new-key", defaults: defaults)
+        let scope = LabSpendJournal.scope("old-key")
+        for _ in 0..<3 {
+            LabSpendJournal.recordEstimate(id: "job/single/0", cost: 0.0045, scope: scope, defaults: defaults)
+            LabSpendJournal.recordEstimate(id: "uncertain-attempt", cost: nil, scope: scope, defaults: defaults)
+        }
+        let old = LabSpendJournal.read(apiKey: "old-key", defaults: defaults)
+        XCTAssertEqual(old.spentUSD, 0.0045, accuracy: 0.0000001)
+        XCTAssertEqual(old.unknownRequests, 1)
+        XCTAssertEqual(LabSpendJournal.read(apiKey: "new-key", defaults: defaults).estimatedRemaining, 20)
+    }
+
     func testElevenServerQuotaAndOverageAreNotConfusedWithMoney() throws {
         let data = Data(#"{"tier":"starter","character_count":2500,"character_limit":10000,"next_character_count_reset_unix":1800000000,"can_extend_character_limit":true}"#.utf8)
         let quota = try LabElevenAllowance.decode(data)
