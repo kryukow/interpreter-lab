@@ -81,8 +81,8 @@ struct LabSettings: View {
                         if !login.message.isEmpty { Text(login.message).font(.footnote) }
                     }
                 }
-                if model.authSource == "api" || model.speechEngine == "openai" {
-                    LabSettingsCard(title: "Ключ OpenAI API", symbol: "key.horizontal", summary: model.keySaved ? "Ключ сохранён · перевод и озвучивание API" : "Ключ не добавлен") {
+                Group {
+                    LabSettingsCard(title: "Ключ OpenAI API", symbol: "key.horizontal", summary: model.keySaved ? "Ключ сохранён · перевод, голос и транскрибация" : "Ключ не добавлен") {
                         Text(model.keySaved ? "Ключ сохранён в Keychain этого приложения" : "Добавь API-ключ для платного режима")
                             .font(.footnote)
                         SecureField("Вставь API-ключ", text: $key)

@@ -6,6 +6,7 @@ struct LabView: View {
     @State private var settings = false
     @State private var languagePicker = false
     @State private var budgetSheet = false
+    @State private var transcription = false
     @AppStorage("lab.keepAwake") private var keepAwake = true
     @AppStorage("lab.partnerLanguage") private var partnerCode = "de"
     @Environment(\.scenePhase) private var scenePhase
@@ -29,7 +30,7 @@ struct LabView: View {
                     VStack(spacing: 12) {
                         header.padding(.top, 10)
                         LabGraphiteSignalView(signal: model.visualSignal,
-                                              phase: resonancePhase, orbitActive: settings || languagePicker || budgetSheet)
+                                              phase: resonancePhase, orbitActive: settings || languagePicker || budgetSheet || transcription)
                             .frame(height: min(235, max(150, geometry.size.height * 0.29)))
                             .overlay { LabSphereBudget(model: model) { budgetSheet = true } }
                         status
@@ -58,6 +59,7 @@ struct LabView: View {
                 .ignoresSafeArea()
         }
         .tint(.white)
+        .sheet(isPresented: $transcription) { TranscriptionView(account: model) }
         .sheet(isPresented: $settings) { LabSettings(model: model) }
         .sheet(isPresented: $budgetSheet) { LabBudgetSheet(model: model) }
         .sheet(isPresented: $languagePicker) {
@@ -104,6 +106,12 @@ struct LabView: View {
                 .accessibilityHint("Выбрать другой язык")
             }
             Spacer(minLength: 12)
+            Button { model.stopAll(); transcription = true } label: {
+                Image(systemName: "waveform.badge.plus").font(.system(size: 18))
+                    .frame(width: 42, height: 42)
+                    .background(Color.white.opacity(0.035), in: Circle())
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.09), lineWidth: 0.5))
+            }.disabled(!canOpenSettings).accessibilityLabel("Аудиозаписи · транскрибация")
             Button { model.stopAll(); settings = true } label: {
                 Image(systemName: "slider.horizontal.3").font(.system(size: 18, weight: .regular))
                     .frame(width: 42, height: 42)

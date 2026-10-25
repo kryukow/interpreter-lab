@@ -86,6 +86,19 @@ enum LabSpendJournal {
         lock.unlock()
         NotificationCenter.default.post(name: LabBudgetEvents.changed, object: nil)
     }
+    /// Transcription uses a duration estimate. Scope is captured at submission,
+    /// so restoring a job after changing keys never charges the new account.
+    static func recordEstimate(id: String, cost: Double?, scope: String, defaults: UserDefaults = .standard) {
+        guard !scope.isEmpty else { return }
+        lock.lock()
+        let storageKey = storage + "." + scope
+        var value = defaults.data(forKey: storageKey).flatMap { try? JSONDecoder().decode(LabOpenAILedger.self, from: $0) } ?? LabOpenAILedger()
+        value.scope = scope
+        value.record(id: id, cost: cost)
+        if let data = try? JSONEncoder().encode(value) { defaults.set(data, forKey: storageKey) }
+        lock.unlock()
+        NotificationCenter.default.post(name: LabBudgetEvents.changed, object: nil)
+    }
     static func record(id: String, model: String, usage: [String: Any]?, apiKey: String, defaults: UserDefaults = .standard) {
         lock.lock()
         var value = read(apiKey: apiKey, defaults: defaults)
